@@ -50,7 +50,6 @@ case $SHELL in
     [ -f /etc/profile ] && . /etc/profile
     [ -f $HOME/.profile ] && . $HOME/.profile
     [ -f $HOME/.config/user-dirs.dirs ] && . $HOME/.config/user-dirs.dirs
-    export XDG_RUNTIME_DIR="/run/user/1000"
     ;;
 esac
 
