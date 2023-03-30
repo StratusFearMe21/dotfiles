@@ -35,3 +35,7 @@ Simply install the package with `DOTFILES_USER` set to your current user.
 
 For both of these processes, the environment variables are only needed once, and upgrading
 is as simple as upgrading the package.
+
+### Does it work?
+
+Yes, I tested it on a fresh install of Artix and worked out all the kinks!
