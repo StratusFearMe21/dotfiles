@@ -109,6 +109,7 @@ build() {
 }
 
 package() {
+  echo '*' > "$pkgdir/.gitignore"
   cd "$srcdir"
   meson install -C build --no-rebuild --destdir="$pkgdir"
   mkdir -p "$pkgdir/etc/profile.d"
