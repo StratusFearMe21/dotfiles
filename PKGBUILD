@@ -1,5 +1,5 @@
 pkgname=dotfiles
-pkgver=0.9.5
+pkgver=0.9.6
 pkgrel=1
 pkgdesc='All my dotfiles as one package'
 arch=('any')
@@ -96,7 +96,7 @@ provides=('wlroots')
 conflicts=('wlroots')
 
 build() {
-  CC=clang AR=llvm-ar CXX=clang++ CC_LD=mold CXX_LD=mold meson setup build \
+  CC=clang AR=llvm-ar CXX=clang++ CC_LD=mold CXX_LD=mold meson setup --reconfigure build \
     "$srcdir/.." \
     -Db_lto=true \
     --buildtype=release \

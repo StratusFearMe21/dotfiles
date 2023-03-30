@@ -1,5 +1,8 @@
 # My dotfiles
 
+![My desktop](screenshot.png)
+![My desktop, empty](screenshot-desktop.png)
+
 This is a `makepkg` package which can be installed on a live cd of Artix/Arch with an
 AUR helper.
 
