@@ -3,7 +3,7 @@ project('dwl', ['c', 'cpp'],
 )
 
 subproject('libliftoff', default_options: 'default_library=static')
-subproject('wlroots', default_options : 'examples=false')
+subproject('wlroots', default_options : ['examples=false', 'default_library=static'])
 subdir('protocols')
 
 cc = meson.get_compiler('c')
