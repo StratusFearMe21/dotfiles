@@ -1,5 +1,5 @@
 pkgname=dotfiles
-pkgver=0.9.3
+pkgver=0.9.5
 pkgrel=1
 pkgdesc='All my dotfiles as one package'
 arch=('any')
@@ -112,6 +112,7 @@ package() {
   echo '*' > "$pkgdir/../.gitignore"
   cd "$srcdir"
   meson install -C build --no-rebuild --destdir="$pkgdir"
+  rm -rf "$pkgdir/usr/lib/librustbar.a"
   install -Dm644 ../myprofile.sh "$pkgdir/etc/profile.d/myprofile.sh"
   install -Dm644 ../cargo-env.sh "$pkgdir/etc/profile.d/cargo-env.sh"
   install -Dm644 ../rust.png "$pkgdir/usr/share/backgrounds/rust.png"
