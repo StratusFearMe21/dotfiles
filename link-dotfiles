@@ -4,6 +4,7 @@ LIBREWOLF_DEFAULT_RELEASE=$(find ~/.librewolf -name "*.default-release")
 if [ -z $LIBREWOLF_DEFAULT_RELEASE ]; then
   echo "Once LibreWolf has run once, run /usr/share/dotfiles/link-dotfiles"
 else
+  unlink $LIBREWOLF_DEFAULT_RELEASE/chrome
   ln -sf /usr/share/dotfiles/chrome $LIBREWOLF_DEFAULT_RELEASE/chrome
   ln -sf /usr/share/dotfiles/user-overrides.js $LIBREWOLF_DEFAULT_RELEASE/user-overrides.js
   arkenfox-updater -sp $LIBREWOLF_DEFAULT_RELEASE
