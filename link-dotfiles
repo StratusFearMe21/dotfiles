@@ -1,0 +1,16 @@
+#!/bin/sh
+LIBREWOLF_DEFAULT_RELEASE=$(find ~/.librewolf -name "*.default-release")
+
+if [ -z $LIBREWOLF_DEFAULT_RELEASE ]; then
+  echo "Once LibreWolf has run once, run /usr/share/dotfiles/link-dotfiles"
+else
+  ln -sf /usr/share/dotfiles/chrome $LIBREWOLF_DEFAULT_RELEASE/chrome
+  ln -sf /usr/share/dotfiles/user-overrides.js $LIBREWOLF_DEFAULT_RELEASE/user-overrides.js
+  arkenfox-updater -sp $LIBREWOLF_DEFAULT_RELEASE
+fi
+s6-db-reload-user
+mkdir -p ~/.config/nushell/
+ln -sf /usr/share/dotfiles/env.nu ~/.config/nushell/env.nu
+ln -sf /usr/share/dotfiles/config.nu ~/.config/nushell/config.nu
+mkdir -p ~/.config/foot
+ln -sf /usr/share/dotfiles/foot.ini ~/.config/foot/foot.ini

@@ -1,0 +1,27 @@
+post_install() {
+	if [[ $DOTFILES_USER ]]; then
+		su $DOTFILES_USER -c /usr/share/dotfiles/link-dotfiles
+	else
+		echo "ERROR: Dotfiles install failed, DOTFILES_USER unset"
+		exit 1
+	fi
+	if [[ $INSTALL_ARTIX ]]; then
+		echo "Running artix install"
+		usermod -aG wheel $DOTFILES_USER
+		chsh $DOTFILES_USER -s /bin/dash
+		ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
+		hwclock --systohc
+		sed -i "s/#en_US.UTF-8/en_US.UTF-8/g" /etc/locale.gen
+		locale-gen
+		echo 'export LANG="en_US.UTF-8"' > /etc/locale.conf
+		if [[ $HOSTNAME ]]; then
+			echo "Writing hostname: $HOSTNAME"
+			echo $HOSTNAME > /etc/hostname
+			echo 127.0.0.1 $HOSTNAME >> /etc/hosts
+		else
+			echo "WARN: No hostname"
+		fi
+		echo "127.0.0.1 localhost" >> /etc/hosts
+		echo "::1 localhost" >> /etc/hosts
+	fi
+}

@@ -1,0 +1,6 @@
+project('dotfiles')
+subproject('dwl')
+subproject('somebar')
+subproject('wob')
+subproject('cat_sock')
+subproject('isdirempty')

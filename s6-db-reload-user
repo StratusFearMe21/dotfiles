@@ -1,0 +1,32 @@
+#!/bin/sh
+
+ DATAPATH="/etc/s6-user"
+ RCPATH="/home/${USER}/.local/share/s6/rc"
+ DBPATH="${RCPATH}/compiled"
+ SVPATH="${DATAPATH}/sv"
+ SVDIRS="/tmp/s6-rc/servicedirs"
+ TIMESTAMP=$(date +%s)
+
+ mkdir -p ${RCPATH}
+ if ! s6-rc-compile "${DBPATH}"-"${TIMESTAMP}" "${SVPATH}"; then
+     echo "Error compiling database. Please double check the ${SVPATH} directories."
+     exit 1
+ fi
+
+ if [ -e "/tmp/s6-rc" ]; then
+     for dir in "${SVDIRS}"/*; do
+         if [ -e "${dir}/down" ]; then
+             s6-svc -x "${dir}"
+         fi
+     done
+    s6-rc-update -l "/tmp/s6-rc" "${DBPATH}"-"${TIMESTAMP}"
+ fi
+
+ if [ -d "${DBPATH}" ]; then
+     ln -sf "${DBPATH}"-"${TIMESTAMP}" "${DBPATH}"/compiled && mv -f "${DBPATH}"/compiled "${RCPATH}"
+ else
+     ln -sf "${DBPATH}"-"${TIMESTAMP}" "${DBPATH}"
+ fi
+
+ echo "==> Switched to a new database for ${USER}."
+ echo "    Remove any old unwanted/unneeded database directories in ${RCPATH}."

@@ -1,0 +1,6 @@
+#!/bin/execlineb -P
+importas -sCuD "n3 s2000000 T" DIRECTIVES DIRECTIVES
+ifelse { test -w /tmp/s6-user-log } {
+    foreground { mkdir -p /tmp/s6-user-log/gvfsd }
+    exec -c s6-log -d3 -b -- ${DIRECTIVES} /tmp/s6-user-log/gvfsd
+}

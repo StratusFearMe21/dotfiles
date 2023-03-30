@@ -1,0 +1,3 @@
+#!/bin/execlineb -P
+fdmove -c 2 1
+exec dbus-daemon --session --nofork --nopidfile --address=unix:path=/tmp/dbus-session

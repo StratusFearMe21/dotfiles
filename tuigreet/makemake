@@ -1,0 +1,2 @@
+#!/bin/sh
+/sbin/echo -e .PHONY: tuigreet\\ntuigreet:\\n\\tcargo build --release --target-dir . --manifest-path $(dirname -- "$0")/Cargo.toml\\ninstall: tuigreet\\n\\tmkdir -p \$\(DESTDIR\)@PREFIX@/bin\\n\\tinstall -m 755 release/tuigreet \$\(DESTDIR\)@PREFIX@/bin > Makefile

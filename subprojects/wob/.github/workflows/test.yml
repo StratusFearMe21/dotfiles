@@ -1,0 +1,42 @@
+name: test
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: alpine:3.17
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install dependencies
+        run: apk update && apk add meson wayland-dev musl-dev wayland-protocols gcc inih-dev pixman-dev
+      - name: Run tests
+        run: meson setup test && ninja -C test test
+
+  analyze:
+    runs-on: ubuntu-latest
+    container: alpine:3.17
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install dependencies
+        run: apk update && apk add meson wayland-dev musl-dev wayland-protocols gcc inih-dev pixman-dev clang15 clang15-extra-tools clang15-analyzer
+      - name: Run clang-analyzer
+        if: success() || failure()
+        run: scan-build meson setup clang-analyzer && scan-build --status-bugs ninja -C clang-analyzer wob
+      - name: Run clang-tidy
+        if: success() || failure()
+        run: meson setup tidy && ninja -C tidy wob && run-clang-tidy -p tidy
+
+  format:
+    runs-on: ubuntu-latest
+    container: alpine:3.17
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install dependencies
+        run: apk update && apk add clang15-extra-tools
+      - name: Run clang-format
+        run: clang-format -Werror --dry-run src/*

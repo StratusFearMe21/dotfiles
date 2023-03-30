@@ -1,0 +1,3 @@
+#!/bin/execlineb -P
+if -tX { /usr/bin/isdirempty /sys/class/backlight }
+	exec /sbin/light -I
