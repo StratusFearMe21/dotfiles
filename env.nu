@@ -1,6 +1,6 @@
 if "S6_NU" in ($env | columns) {
-    s6-rc-init -c /home/isaacm/.local/share/s6/rc/compiled -l /tmp/isaacm/s6-rc /tmp/isaacm/service
-    s6-rc -l /tmp/isaacm/s6-rc -u change tty        
+    s6-rc-init -c ($env.HOME | path join .local/share/s6/rc/compiled) -l /tmp/s6-rc /tmp/s6-user-service
+    s6-rc -l /tmp/s6-rc -u change tty        
 } 
 
 cat_sock

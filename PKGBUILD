@@ -1,5 +1,5 @@
 pkgname=dotfiles
-pkgver=0.9.1
+pkgver=0.9.2
 pkgrel=1
 pkgdesc='All my dotfiles as one package'
 arch=('any')
@@ -109,7 +109,7 @@ build() {
 }
 
 package() {
-  echo '*' > "$pkgdir/.gitignore"
+  echo '*' > "$pkgdir/../.gitignore"
   cd "$srcdir"
   meson install -C build --no-rebuild --destdir="$pkgdir"
   mkdir -p "$pkgdir/etc/profile.d"
