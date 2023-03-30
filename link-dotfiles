@@ -8,9 +8,14 @@ else
   ln -sf /usr/share/dotfiles/user-overrides.js $LIBREWOLF_DEFAULT_RELEASE/user-overrides.js
   arkenfox-updater -sp $LIBREWOLF_DEFAULT_RELEASE
 fi
+xdg-user-dirs-update
 s6-db-reload-user
 mkdir -p ~/.config/nushell/
 ln -sf /usr/share/dotfiles/env.nu ~/.config/nushell/env.nu
 ln -sf /usr/share/dotfiles/config.nu ~/.config/nushell/config.nu
 mkdir -p ~/.config/foot
 ln -sf /usr/share/dotfiles/foot.ini ~/.config/foot/foot.ini
+mkdir -p ~/.config/tofi
+ln -sf /usr/share/dotfiles/tofi-config ~/.config/tofi/config
+mkdir -p ~/.config/helix
+ln -sf /usr/share/dotfiles/helix-config.toml ~/.config/helix/config.toml

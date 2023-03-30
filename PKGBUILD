@@ -1,6 +1,6 @@
 pkgname=dotfiles
-pkgver=0.8.15
-pkgrel=3
+pkgver=0.9.1
+pkgrel=1
 pkgdesc='All my dotfiles as one package'
 arch=('any')
 install=dotfiles.install
@@ -83,6 +83,7 @@ depends=(
   ttf-fira-code
   ttf-firacode-nerd
   arkenfox-user.js
+  tofi
 )
 makedepends=(
   mold
@@ -121,7 +122,7 @@ package() {
   cp "$srcdir/build/tuigreet/build/release/tuigreet" "$pkgdir/usr/bin"
   mkdir -p "$pkgdir/etc/greetd"
   cp ../wsetup.sh "$pkgdir/etc/greetd"
-  cp ../config.toml "$pkgdir/etc/greetd/config.dotfile.toml"
+  cp ../greetd-config.toml "$pkgdir/etc/greetd/config.dotfile.toml"
   mkdir -p "$pkgdir/usr/share/wayland-sessions"
   cp ../dwl.desktop "$pkgdir/usr/share/wayland-sessions"
   cp ../doas.conf "$pkgdir/etc/doas.conf"
@@ -131,5 +132,7 @@ package() {
   cp ../config.nu "$pkgdir/usr/share/dotfiles"
   cp -r ../chrome "$pkgdir/usr/share/dotfiles"
   cp ../user-overrides.js "$pkgdir/usr/share/dotfiles"
+  cp ../helix-config.toml "$pkgdir/usr/share/dotfiles"
+  cp ../tofi-config "$pkgdir/usr/share/dotfiles" 
   cp ../link-dotfiles "$pkgdir/usr/share/dotfiles"
 }

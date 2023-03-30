@@ -17,6 +17,7 @@ def giac [] {
 }
 
 let-env STARSHIP_SHELL = "nu"
+let-env GPG_TTY = (tty)
 let-env STARSHIP_SESSION_KEY = (random chars -l 16)
 let-env PROMPT_MULTILINE_INDICATOR = (^/sbin/starship prompt --continuation)
 
