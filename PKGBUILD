@@ -1,5 +1,5 @@
 pkgname=dotfiles
-pkgver=0.9.6
+pkgver=0.9.7
 pkgrel=1
 pkgdesc='All my dotfiles as one package'
 arch=('any')
@@ -83,6 +83,7 @@ depends=(
   ttf-fira-code
   ttf-firacode-nerd
   arkenfox-user.js
+  doas-sudo-shim
   tofi
 )
 makedepends=(
@@ -96,7 +97,7 @@ provides=('wlroots')
 conflicts=('wlroots')
 
 build() {
-  CC=clang AR=llvm-ar CXX=clang++ CC_LD=mold CXX_LD=mold meson setup --reconfigure build \
+  CC=clang AR=llvm-ar CXX=clang++ CC_LD=mold CXX_LD=mold meson setup build \
     "$srcdir/.." \
     -Db_lto=true \
     --buildtype=release \
