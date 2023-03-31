@@ -1,4 +1,5 @@
 post_install() {
+	s6-db-reload-user
 	if [[ $DOTFILES_USER ]]; then
 		su $DOTFILES_USER -c /usr/share/dotfiles/link-dotfiles
 	else
@@ -27,5 +28,5 @@ post_install() {
 }
 
 post_upgrade() {
-	su $DOTFILES_USER -c s6-db-reload-user
+	s6-db-reload-user
 }

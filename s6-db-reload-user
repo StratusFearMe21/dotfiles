@@ -1,7 +1,7 @@
 #!/bin/sh
 
  DATAPATH="/etc/s6-user"
- RCPATH="/home/${USER}/.local/share/s6/rc"
+ RCPATH="/etc/s6-user/rc"
  DBPATH="${RCPATH}/compiled"
  SVPATH="${DATAPATH}/sv"
  SVDIRS="/tmp/${USER}/s6-rc/servicedirs"

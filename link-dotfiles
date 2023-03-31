@@ -10,7 +10,6 @@ else
   arkenfox-updater -sp $LIBREWOLF_DEFAULT_RELEASE
 fi
 xdg-user-dirs-update
-s6-db-reload-user
 mkdir -p ~/.config/nushell/
 ln -sf /usr/share/dotfiles/env.nu ~/.config/nushell/env.nu
 ln -sf /usr/share/dotfiles/config.nu ~/.config/nushell/config.nu
