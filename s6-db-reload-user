@@ -4,7 +4,7 @@
  RCPATH="/home/${USER}/.local/share/s6/rc"
  DBPATH="${RCPATH}/compiled"
  SVPATH="${DATAPATH}/sv"
- SVDIRS="/tmp/s6-rc/servicedirs"
+ SVDIRS="/tmp/${USER}/s6-rc/servicedirs"
  TIMESTAMP=$(date +%s)
 
  mkdir -p ${RCPATH}
@@ -13,13 +13,13 @@
      exit 1
  fi
 
- if [ -e "/tmp/s6-rc" ]; then
+ if [ -e "/tmp/${USER}/s6-rc" ]; then
      for dir in "${SVDIRS}"/*; do
          if [ -e "${dir}/down" ]; then
              s6-svc -x "${dir}"
          fi
      done
-    s6-rc-update -l "/tmp/s6-rc" "${DBPATH}"-"${TIMESTAMP}"
+    s6-rc-update -l "/tmp/${USER}/s6-rc" "${DBPATH}"-"${TIMESTAMP}"
  fi
 
  if [ -d "${DBPATH}" ]; then

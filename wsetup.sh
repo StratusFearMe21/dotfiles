@@ -53,9 +53,9 @@ case $SHELL in
     ;;
 esac
 
-rm -rf /tmp/s6-user-*
-mkdir /tmp/s6-user-service
-mkdir /tmp/s6-user-log
+rm -rf /tmp/${USER}
+mkdir -p /tmp/${USER}/service
+mkdir -p /tmp/${USER}/log
 
 # eval $(dbus-launch --sh-syntax)
 

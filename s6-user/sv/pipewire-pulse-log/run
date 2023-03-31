@@ -1,6 +1,13 @@
-#!/bin/execlineb -P
-importas -sCuD "n3 s2000000 T" DIRECTIVES DIRECTIVES
-ifelse { test -w /tmp/s6-user-log } {
-    foreground { mkdir -p /tmp/s6-user-log/pipewire-pulse }
-    exec -c s6-log -d3 -b -- ${DIRECTIVES} /tmp/s6-user-log/pipewire-pulse
+#!/bin/execlineb -S0
+
+/bin/multisubstitute
+{
+  importas -i USER USER
+  importas -sCuD "n3 s2000000 T" DIRECTIVES DIRECTIVES
+
+}
+
+ifelse { test -w /tmp/${USER}/log } {
+    foreground { mkdir -p /tmp/${USER}/log/pipewire-pulse }
+    exec -c s6-log -d3 -b -- ${DIRECTIVES} /tmp/${USER}/log/pipewire-pulse
 }

@@ -1,5 +1,5 @@
 pkgname=dotfiles
-pkgver=0.9.14
+pkgver=0.10.0
 pkgrel=1
 pkgdesc='All my dotfiles as one package'
 arch=('any')
@@ -36,7 +36,7 @@ depends=(
   libgepub
   libgsf
   poppler-glib
-  dash
+  dash-static-musl
   pamixer
   waylock
   light
