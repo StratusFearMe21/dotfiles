@@ -1,5 +1,5 @@
 pkgname=dotfiles
-pkgver=0.9.7
+pkgver=0.9.13
 pkgrel=1
 pkgdesc='All my dotfiles as one package'
 arch=('any')
@@ -75,7 +75,7 @@ depends=(
   mate-polkit
   pipewire
   pipewire-pulse
-  pipewire-media-session
+  wireplumber
   pueue
   swaybg
   xorg-xwayland
@@ -85,6 +85,7 @@ depends=(
   arkenfox-user.js
   doas-sudo-shim
   tofi
+  xdg-user-dirs
 )
 makedepends=(
   mold

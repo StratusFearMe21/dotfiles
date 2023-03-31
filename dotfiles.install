@@ -25,3 +25,7 @@ post_install() {
 		echo "::1 localhost" >> /etc/hosts
 	fi
 }
+
+post_upgrade() {
+	su $DOTFILES_USER -c s6-db-reload-user
+}

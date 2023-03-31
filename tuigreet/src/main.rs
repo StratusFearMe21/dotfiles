@@ -61,6 +61,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
 
   let mut ipc_handler = ipc.clone();
   loop {
+    ui::draw(greeter.clone(), &mut terminal).await?;
+
     tokio::select! {
       _ = ipc_handler.handle(greeter.clone()) => {}
       _ = notifier.notified() => {
@@ -79,8 +81,6 @@ async fn run() -> Result<(), Box<dyn Error>> {
         }
       }
     }
-
-    ui::draw(greeter.clone(), &mut terminal).await?;
   }
 }
 
