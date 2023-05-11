@@ -5,3 +5,4 @@ export SDL_AUDIODRIVER=pipewire
 export MOZ_ENABLE_WAYLAND=1
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/dbus-session
 export XCURSOR_THEME=Bibata-Modern-Classic
+[ -f $HOME/.config/user-dirs.dirs ] && . $HOME/.config/user-dirs.dirs

@@ -2,6 +2,6 @@
 Encoding=UTF-8
 Name=Dwl
 Comment=Dynamic window manager (Wayland)
-Exec=/etc/greetd/wsetup.sh dwl
+Exec=/etc/greetd/wsetup dwl
 Icon=dwl
 Type=Wayland

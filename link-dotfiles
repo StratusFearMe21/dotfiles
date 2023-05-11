@@ -1,21 +1,20 @@
 #!/bin/sh
+mkdir -p ~/.config/nushell/
+mkdir -p ~/.config/foot
+mkdir -p ~/.config/tofi
+mkdir -p ~/.config/helix
+ln -sf /usr/share/dotfiles/env.nu ~/.config/nushell/env.nu
+ln -sf /usr/share/dotfiles/config.nu ~/.config/nushell/config.nu
+ln -sf /usr/share/dotfiles/foot.ini ~/.config/foot/foot.ini
+ln -sf /usr/share/dotfiles/tofi-config ~/.config/tofi/config
+ln -sf /usr/share/dotfiles/helix-config.toml ~/.config/helix/config.toml
+xdg-user-dirs-update
 LIBREWOLF_DEFAULT_RELEASE=$(find ~/.librewolf -name "*.default-release")
-
 if [ -z $LIBREWOLF_DEFAULT_RELEASE ]; then
-  echo "Once LibreWolf has run once, run /usr/share/dotfiles/link-dotfiles"
+  echo "Once LibreWolf has run once, run /usr/share/dotfiles/link-dotfiles" unlink $LIBREWOLF_DEFAULT_RELEASE/chrome
 else
   unlink $LIBREWOLF_DEFAULT_RELEASE/chrome
   ln -sf /usr/share/dotfiles/chrome $LIBREWOLF_DEFAULT_RELEASE/chrome
   ln -sf /usr/share/dotfiles/user-overrides.js $LIBREWOLF_DEFAULT_RELEASE/user-overrides.js
   arkenfox-updater -sp $LIBREWOLF_DEFAULT_RELEASE
 fi
-xdg-user-dirs-update
-mkdir -p ~/.config/nushell/
-ln -sf /usr/share/dotfiles/env.nu ~/.config/nushell/env.nu
-ln -sf /usr/share/dotfiles/config.nu ~/.config/nushell/config.nu
-mkdir -p ~/.config/foot
-ln -sf /usr/share/dotfiles/foot.ini ~/.config/foot/foot.ini
-mkdir -p ~/.config/tofi
-ln -sf /usr/share/dotfiles/tofi-config ~/.config/tofi/config
-mkdir -p ~/.config/helix
-ln -sf /usr/share/dotfiles/helix-config.toml ~/.config/helix/config.toml

@@ -1,5 +1,5 @@
 pkgname=dotfiles
-pkgver=0.10.1
+pkgver=0.17.1
 pkgrel=1
 pkgdesc='All my dotfiles as one package'
 arch=('any')
@@ -86,6 +86,7 @@ depends=(
   doas-sudo-shim
   tofi
   xdg-user-dirs
+  execline
 )
 makedepends=(
   mold
@@ -122,7 +123,7 @@ package() {
   cp -r ../s6-user "$pkgdir/etc"
   install -Dm755 ../s6-db-reload-user "$pkgdir/usr/bin/s6-db-reload-user"
   install -Dm755 "$srcdir/build/tuigreet/build/release/tuigreet" "$pkgdir/usr/bin/tuigreet"
-  install -Dm755 ../wsetup.sh "$pkgdir/etc/greetd/wsetup.sh"
+  install -Dm755 ../wsetup "$pkgdir/etc/greetd/wsetup"
   install -Dm644 ../greetd-config.toml "$pkgdir/etc/greetd/config.dotfile.toml"
   install -Dm644 ../dwl.desktop "$pkgdir/usr/share/wayland-sessions/dwl.desktop"
   install -Dm644 ../doas.conf "$pkgdir/etc/doas.conf"
@@ -131,6 +132,7 @@ package() {
   install -Dm755 ../config.nu "$pkgdir/usr/share/dotfiles/config.nu"
   install -dm755 "$pkgdir/usr/share/dotfiles/chrome"
   cp -r ../chrome "$pkgdir/usr/share/dotfiles"
+  cp -r ../pipewire "$pkgdir/etc"
   install -Dm644 ../user-overrides.js "$pkgdir/usr/share/dotfiles/user-overrides.js"
   install -Dm644 ../helix-config.toml "$pkgdir/usr/share/dotfiles/helix-config.toml"
   install -Dm644 ../tofi-config "$pkgdir/usr/share/dotfiles/tofi-config" 

@@ -79,8 +79,7 @@ macro_rules! match_bat_type {
             BatteryType::Wearable => "󰖉 ",
             BatteryType::Toy => "󱊈 ",
             BatteryType::BluetoothGeneric => "󰂯 ",
-            BatteryType::Last => "󰘁 "
-,
+            BatteryType::Last => "󰘁 ",
         }
     };
 }
@@ -88,31 +87,35 @@ macro_rules! match_battery {
     ($shared_data:expr) => {
         match $shared_data.state {
             BatteryState::Discharging | BatteryState::Unknown => match $shared_data.percentage {
-                0..=10 => " ",
-                11..=20 => " ",
-                21..=30 => " ",
-                31..=40 => " ",
-                41..=50 => " ",
-                51..=60 => " ",
-                61..=70 => " ",
-                71..=80 => " ",
-                81..=90 => " ",
-                91.. => " ",
+                0..=9 => "󰂎 ",
+                10..=19 => "󰁺 ",
+                20..=29 => "󰁻 ",
+                30..=39 => "󰁼 ",
+                40..=49 => "󰁽 ",
+                50..=59 => "󰁾 ",
+                60..=69 => "󰁿 ",
+                70..=79 => "󰂀 ",
+                80..=89 => "󰂁 ",
+                90..=99 => "󰂂 ",
+                _ => "󰁹 ",
             },
             BatteryState::Charging => match $shared_data.percentage {
-                0..=20 => " ",
-                21..=30 => " ",
-                31..=40 => " ",
-                41..=60 => " ",
-                61..=80 => " ",
-                81..=90 => " ",
-                91.. => " ",
+                0..=9 => "󰢟 ",
+                10..=19 => "󰢜 ",
+                20..=29 => "󰂆 ",
+                30..=39 => "󰂇 ",
+                40..=49 => "󰂈 ",
+                50..=59 => "󰢝 ",
+                60..=69 => "󰂉 ",
+                70..=79 => "󰢞 ",
+                80..=89 => "󰂊 ",
+                90..=99 => "󰂋 ",
+                _ => "󰂅 ",
             },
             BatteryState::FullyCharged => "󰂄 ",
             BatteryState::PendingCharge => "󱠴 ",
             BatteryState::PendingDischarge => "󱠵 ",
-            BatteryState::Empty => "󰂃 "
-,
+            BatteryState::Empty => "󰂃 ",
         }
     };
 }
@@ -156,8 +159,7 @@ macro_rules! match_volume {
         match $b {
             0..=24 => "󰕿 ",
             25..=74 => "󰖀 ",
-            _ => "󰕾 "
-,
+            _ => "󰕾 ",
         }
     };
 }
@@ -171,13 +173,16 @@ macro_rules! match_brightness {
             48..=63 => "󰃝 ",
             64..=79 => "󰃞 ",
             80..=95 => "󰃟 ",
-            _ => "󰃠 "
-,
+            _ => "󰃠 ",
         }
     };
 }
 
-struct SharedData {
+pub trait GetSharedData<F: FnMut(Vec<u8>)> {
+    fn get_shared_data(&mut self) -> &mut SharedData<F>;
+}
+
+pub struct SharedData<F: FnMut(Vec<u8>)> {
     playing: PlaybackStatus,
     song_metadata: (String, String),
     now: OffsetDateTime,
@@ -188,6 +193,7 @@ struct SharedData {
     max_brightness: f32,
     bat_devices: HashMap<dbus::Path<'static>, BatteryDevice>,
     signal: LoopSignal,
+    callback: F,
 }
 
 const TIME_FMT: [format_description::FormatItem; 3] = [
@@ -212,8 +218,8 @@ const DATE_FMT: [format_description::FormatItem; 5] = [
     format_description::FormatItem::Component(format_description::Component::Year(Year::default())),
 ];
 
-impl SharedData {
-    fn new(signal: LoopSignal) -> Self {
+impl<F: FnMut(Vec<u8>)> SharedData<F> {
+    pub fn new(signal: LoopSignal, callback: F) -> Self {
         let timezone = tz::TimeZone::local().unwrap();
         let time_offset = timezone.find_current_local_time_type().unwrap().ut_offset();
         let now = time::OffsetDateTime::now_utc()
@@ -229,11 +235,12 @@ impl SharedData {
             max_brightness: 0.0,
             bat_devices: Default::default(),
             signal,
+            callback,
         }
     }
 }
 
-impl SharedData {
+impl<F: FnMut(Vec<u8>)> SharedData<F> {
     fn fmt(&self, f: &mut Vec<u8>) -> std::io::Result<()> {
         write!(f, "{}", match_clock!(self.now.hour()))?;
         self.now.format_into(f, TIME_FMT.as_ref()).unwrap();
@@ -283,7 +290,7 @@ impl SharedData {
     }
 }
 
-impl SharedData {
+impl<F: FnMut(Vec<u8>)> SharedData<F> {
     fn fmt_table(&self, f: &mut BufWriter<UnixStream>) -> std::io::Result<()> {
         write!(
             f,
@@ -339,9 +346,9 @@ struct BatteryDevice {
 }
 
 impl BatteryDevice {
-    fn insert(
+    fn insert<F: FnMut(Vec<u8>)>(
         proxy: dbus::blocking::Proxy<&calloop_dbus::DBusSource<()>>,
-        shared_data: &mut SharedData,
+        shared_data: &mut SharedData<F>,
     ) {
         let bat_type = proxy.type_().unwrap();
         let bat_type = BatteryType::from(bat_type);
@@ -465,8 +472,7 @@ impl Display for TimeTo {
         match self {
             TimeTo::Empty(_) => write!(f, "󰁆 "),
             TimeTo::Full(_) => write!(f, "󰁞 "),
-            TimeTo::Unknown => write!(f, "󰑓 ")
-,
+            TimeTo::Unknown => write!(f, "󰑓 "),
         }
     }
 }
@@ -490,21 +496,6 @@ impl Debug for TimeTo {
             }
             TimeTo::Unknown => Ok(()),
         }
-    }
-}
-
-fn write_bar(shared_data: &mut SharedData) {
-    let mut string = Vec::new();
-    shared_data.fmt(&mut string).unwrap();
-    #[cfg(not(feature = "i3bar"))]
-    unsafe {
-        let string = CString::from_vec_unchecked(string);
-        onStatus(string.as_ptr());
-    }
-    #[cfg(feature = "i3bar")]
-    {
-        string.push(b'\n');
-        stdout().write_all(&string).unwrap();
     }
 }
 
@@ -540,12 +531,21 @@ pub unsafe extern "C" fn mpris_play_pause(_: *const c_void, _: *const c_void) {
     PLAYPAUSE_PING.assume_init_ref().ping();
 }
 
-#[no_mangle]
-pub extern "C" fn init() {
-    let mut event_loop: EventLoop<SharedData> = EventLoop::try_new().unwrap();
-    let mut shared_data = SharedData::new(event_loop.get_signal());
+macro_rules! write_bar {
+    ($self:expr) => {
+        let mut string = Vec::new();
+        $self.get_shared_data().fmt(&mut string).unwrap();
+        ($self.get_shared_data().callback)(string);
+    };
+}
+
+pub fn insert_into_loop<F: FnMut(Vec<u8>), G: GetSharedData<F>>(
+    event_loop: &mut EventLoop<G>,
+    shared_data: &mut G,
+) {
     let now = Instant::now();
-    let timer_start = now + Duration::from_secs(60 - shared_data.now.second() as u64);
+    let timer_start =
+        now + Duration::from_secs(60 - shared_data.get_shared_data().now.second() as u64);
     let (user_connection, _): (calloop_dbus::DBusSource<()>, _) =
         calloop_dbus::DBusSource::new_session().unwrap();
     let (system_connection, _): (calloop_dbus::DBusSource<()>, _) =
@@ -584,15 +584,15 @@ pub extern "C" fn init() {
         let connman_proxy =
             system_connection.with_proxy("net.connman", "/", Duration::from_secs(5));
 
-        shared_data.playing =
+        shared_data.get_shared_data().playing =
             PlaybackStatus::from_str(&player_proxy.playback_status().unwrap_or_default()).unwrap();
 
         if let Ok(metadata) = player_proxy.metadata() {
             if let Some(title) = metadata.get("xesam:title") {
-                shared_data.song_metadata.0 = title.as_str().unwrap().to_owned();
+                shared_data.get_shared_data().song_metadata.0 = title.as_str().unwrap().to_owned();
             }
             if let Some(artist) = metadata.get("xesam:artist") {
-                shared_data.song_metadata.1 = artist
+                shared_data.get_shared_data().song_metadata.1 = artist
                     .0
                     .as_iter()
                     .unwrap()
@@ -604,7 +604,7 @@ pub extern "C" fn init() {
             }
         }
 
-        shared_data.online = ConnmanState::from_str(
+        shared_data.get_shared_data().online = ConnmanState::from_str(
             connman_proxy
                 .get_properties()
                 .unwrap()
@@ -616,7 +616,7 @@ pub extern "C" fn init() {
         )
         .unwrap();
 
-        shared_data.connected_service = connman_proxy
+        shared_data.get_shared_data().connected_service = connman_proxy
             .get_services()
             .unwrap()
             .into_iter()
@@ -633,65 +633,33 @@ pub extern "C" fn init() {
             let proxy =
                 system_connection.with_proxy("org.freedesktop.UPower", i, Duration::from_secs(5));
 
-            BatteryDevice::insert(proxy, &mut shared_data);
+            BatteryDevice::insert(proxy, shared_data.get_shared_data());
         }
 
         if let Some(ref brightness) = brightness_path {
-            shared_data.max_brightness = std::fs::read_to_string(brightness.join("max_brightness"))
-                .unwrap()
-                .trim()
-                .parse::<usize>()
-                .unwrap() as f32;
+            shared_data.get_shared_data().max_brightness =
+                std::fs::read_to_string(brightness.join("max_brightness"))
+                    .unwrap()
+                    .trim()
+                    .parse::<usize>()
+                    .unwrap() as f32;
 
             let mut brightness = std::fs::File::open(brightness.join("brightness")).unwrap();
 
             let mut br_string = String::new();
             brightness.read_to_string(&mut br_string).unwrap();
-            shared_data.brightness = ((br_string.trim().parse::<f32>().unwrap()
-                / shared_data.max_brightness)
+            shared_data.get_shared_data().brightness = ((br_string.trim().parse::<f32>().unwrap()
+                / shared_data.get_shared_data().max_brightness)
                 * 100.0) as _;
         } else {
-            shared_data.brightness = 0;
+            shared_data.get_shared_data().brightness = 0;
         }
 
-        write_bar(&mut shared_data);
+        write_bar!(shared_data);
     }
 
     {
         let handle = event_loop.handle();
-
-        #[cfg(not(feature = "i3bar"))]
-        unsafe {
-            let (ping, ping_source) = calloop::ping::make_ping().unwrap();
-            PLAYPAUSE_PING.write(ping);
-
-            let user_conn: *const calloop_dbus::DBusSource<()> = &user_connection as *const _;
-
-            let proxy = (*user_conn).with_proxy(
-                "org.mpris.MediaPlayer2.playerctld",
-                "/org/mpris/MediaPlayer2",
-                Duration::from_secs(5),
-            );
-
-            handle
-                .insert_source(ping_source, move |_, _, _| {
-                    let _ = crate::mpris::OrgMprisMediaPlayer2Player::play_pause(&proxy);
-                })
-                .unwrap();
-        }
-
-        #[cfg(not(feature = "i3bar"))]
-        handle
-            .insert_source(
-                Generic::new(unsafe { displayFd }, Interest::READ, calloop::Mode::Level),
-                |_, _, _| {
-                    if unsafe { wl_display_dispatch(display) < 0 } {
-                        panic!("display_dispatch");
-                    }
-                    Ok(calloop::PostAction::Continue)
-                },
-            )
-            .unwrap();
 
         let socket_file = dirs::runtime_dir().unwrap().join("rustbar-0");
         let _ = std::fs::remove_file(&socket_file);
@@ -703,7 +671,7 @@ pub extern "C" fn init() {
                 move |_event, socket, shared_data| {
                     let (file, _) = socket.accept().unwrap();
                     let mut file = BufWriter::new(file);
-                    shared_data.fmt_table(&mut file).unwrap();
+                    shared_data.get_shared_data().fmt_table(&mut file).unwrap();
 
                     Ok(calloop::PostAction::Continue)
                 },
@@ -729,16 +697,17 @@ pub extern "C" fn init() {
                 move |_, notify, data| {
                     for e in notify.read_events().unwrap() {
                         if e.wd == socket_watch {
-                            data.signal.stop();
+                            data.get_shared_data().signal.stop();
                         } else {
                             let br_string =
                                 std::fs::read_to_string(brightness_path.join("brightness"))
                                     .unwrap();
-                            data.brightness = ((br_string.trim().parse::<f32>().unwrap()
-                                / data.max_brightness)
-                                * 100.0) as _;
+                            data.get_shared_data().brightness =
+                                ((br_string.trim().parse::<f32>().unwrap()
+                                    / data.get_shared_data().max_brightness)
+                                    * 100.0) as _;
 
-                            write_bar(data);
+                            write_bar!(data);
                         }
                     }
                     Ok(calloop::PostAction::Continue)
@@ -751,7 +720,7 @@ pub extern "C" fn init() {
                 Signals::new(&[Signal::SIGINT, Signal::SIGTERM]).unwrap(),
                 move |_, _, data| {
                     std::fs::remove_file(&socket_file).unwrap();
-                    data.signal.stop();
+                    data.get_shared_data().signal.stop();
                 },
             )
             .unwrap();
@@ -759,13 +728,34 @@ pub extern "C" fn init() {
             .insert_source(
                 Timer::from_deadline(timer_start),
                 |_event, _metadata, shared_data| {
-                    shared_data.now = time::OffsetDateTime::now_utc()
-                        .to_offset(UtcOffset::from_whole_seconds(shared_data.time_offset).unwrap());
-                    write_bar(shared_data);
+                    shared_data.get_shared_data().now = time::OffsetDateTime::now_utc().to_offset(
+                        UtcOffset::from_whole_seconds(shared_data.get_shared_data().time_offset)
+                            .unwrap(),
+                    );
+                    write_bar!(shared_data);
                     calloop::timer::TimeoutAction::ToDuration(Duration::from_secs(60))
                 },
             )
             .unwrap();
+        #[cfg(not(feature = "i3bar"))]
+        unsafe {
+            let (ping, ping_source) = calloop::ping::make_ping().unwrap();
+            PLAYPAUSE_PING.write(ping);
+
+            let user_conn: *const calloop_dbus::DBusSource<()> = &user_connection as *const _;
+
+            let proxy = (*user_conn).with_proxy(
+                "org.mpris.MediaPlayer2.playerctld",
+                "/org/mpris/MediaPlayer2",
+                Duration::from_secs(5),
+            );
+
+            handle
+                .insert_source(ping_source, move |_, _, _| {
+                    let _ = crate::mpris::OrgMprisMediaPlayer2Player::play_pause(&proxy);
+                })
+                .unwrap();
+        }
         handle
             .insert_source(user_connection, |event, _metadata, shared_data| {
                 let Some(member) = event.member() else {
@@ -779,11 +769,11 @@ pub extern "C" fn init() {
                         while let Some(data) = metadata.next() {
                             match data.as_str() {
                                 Some("xesam:title") => {
-                                    shared_data.song_metadata.0 =
+                                    shared_data.get_shared_data().song_metadata.0 =
                                         metadata.next().unwrap().as_str().unwrap().to_owned();
                                 }
                                 Some("xesam:artist") => {
-                                    shared_data.song_metadata.1 = metadata
+                                    shared_data.get_shared_data().song_metadata.1 = metadata
                                         .next()
                                         .unwrap()
                                         .as_iter()
@@ -803,14 +793,14 @@ pub extern "C" fn init() {
                         }
                     }
                     if let Some(playback) = property.changed_properties.get("PlaybackStatus") {
-                        shared_data.playing =
+                        shared_data.get_shared_data().playing =
                             PlaybackStatus::from_str(playback.as_str().unwrap()).unwrap();
 
-                        if shared_data.playing == PlaybackStatus::Stopped {
-                            shared_data.song_metadata = Default::default();
+                        if shared_data.get_shared_data().playing == PlaybackStatus::Stopped {
+                            shared_data.get_shared_data().song_metadata = Default::default();
                         }
                     }
-                    write_bar(shared_data);
+                    write_bar!(shared_data);
                 }
                 None
             })
@@ -824,6 +814,7 @@ pub extern "C" fn init() {
                     let property: mpris::OrgFreedesktopDBusPropertiesPropertiesChanged =
                         event.read_all().unwrap();
                     if let Some(device) = shared_data
+                        .get_shared_data()
                         .bat_devices
                         .get_mut(&event.path().unwrap().into_static())
                     {
@@ -849,20 +840,20 @@ pub extern "C" fn init() {
                                 device.time = TimeTo::Full(time_to_full as f32);
                             }
                         }
-                        write_bar(shared_data);
+                        write_bar!(shared_data);
                     }
                 } else if &*member == "PropertyChanged" {
                     let property: connman::NetConnmanManagerPropertyChanged =
                         event.read_all().unwrap();
                     if property.name == "State" {
                         let val = property.value.0.as_str().unwrap();
-                        shared_data.online = ConnmanState::from_str(val).unwrap();
+                        shared_data.get_shared_data().online = ConnmanState::from_str(val).unwrap();
 
                         if matches!(
-                            shared_data.online,
+                            shared_data.get_shared_data().online,
                             ConnmanState::Ready | ConnmanState::Online
                         ) {
-                            shared_data.connected_service = dbus
+                            shared_data.get_shared_data().connected_service = dbus
                                 .with_proxy("net.connman", "/", Duration::from_secs(5))
                                 .get_services()
                                 .unwrap()
@@ -877,7 +868,7 @@ pub extern "C" fn init() {
                                 .unwrap_or_default();
                         }
 
-                        write_bar(shared_data);
+                        write_bar!(shared_data);
                     }
                 } else if &*member == "DeviceAdded" {
                     let battery: upower::OrgFreedesktopUPowerDeviceAdded =
@@ -887,22 +878,57 @@ pub extern "C" fn init() {
                         battery.device,
                         Duration::from_secs(5),
                     );
-                    BatteryDevice::insert(proxy, shared_data);
+                    BatteryDevice::insert(proxy, shared_data.get_shared_data());
 
-                    write_bar(shared_data);
+                    write_bar!(shared_data);
                 } else if &*member == "DeviceRemoved" {
                     let battery: upower::OrgFreedesktopUPowerDeviceRemoved =
                         event.read_all().unwrap();
-                    shared_data.bat_devices.remove(&battery.device);
+                    shared_data
+                        .get_shared_data()
+                        .bat_devices
+                        .remove(&battery.device);
 
-                    write_bar(shared_data);
+                    write_bar!(shared_data);
                 }
                 None
             })
             .unwrap();
     }
+}
+
+pub struct SharedDataTransparent<F: FnMut(Vec<u8>)>(SharedData<F>);
+
+impl<F: FnMut(Vec<u8>)> GetSharedData<F> for SharedDataTransparent<F> {
+    fn get_shared_data(&mut self) -> &mut SharedData<F> {
+        &mut self.0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn init() {
+    let mut event_loop: EventLoop<_> = EventLoop::try_new().unwrap();
+    let mut shared_data =
+        SharedDataTransparent(SharedData::new(event_loop.get_signal(), |string| unsafe {
+            let string = CString::from_vec_unchecked(string);
+            onStatus(string.as_ptr());
+        }));
+    let handle = event_loop.handle();
+    insert_into_loop(&mut event_loop, &mut shared_data);
 
     #[cfg(not(feature = "i3bar"))]
+    handle
+        .insert_source(
+            Generic::new(unsafe { displayFd }, Interest::READ, calloop::Mode::Level),
+            |_, _, _| {
+                if unsafe { wl_display_dispatch(display) < 0 } {
+                    panic!("display_dispatch");
+                }
+                Ok(calloop::PostAction::Continue)
+            },
+        )
+        .unwrap();
+
     event_loop
         .run(None, &mut shared_data, |_| unsafe {
             wl_display_dispatch_pending(display);
