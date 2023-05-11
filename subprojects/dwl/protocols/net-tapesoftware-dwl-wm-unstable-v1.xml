@@ -56,11 +56,11 @@
         </request>
 
         <event name="tag">
-            <description summary="announces the presence of a tag">
+            <description summary="announces the number of tags">
                 This event is sent immediately after binding.
                 A roundtrip after binding guarantees that the client has received all tags.
             </description>
-            <arg name="name" type="string"/>
+            <arg name="count" type="int"/>
         </event>
 
         <event name="layout">

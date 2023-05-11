@@ -87,8 +87,8 @@ Bar::Bar()
 	if (!_pangoContext) {
 		die("pango_font_map_create_context");
 	}
-	for (const auto& tagName : tagNames) {
-		_tags.push_back({ TagState::None, 0, 0, createComponent(tagName) });
+	for (int i = 0; i < tagcount; i++) {
+		_tags.push_back({ TagState::None, 0, 0, createComponent(std::to_string(i)) });
 	}
 	_layoutCmp = createComponent();
 	_titleCmp = createComponent();

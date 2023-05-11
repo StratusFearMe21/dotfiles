@@ -63,8 +63,8 @@ wl_shm* shm;
 zwlr_layer_shell_v1* wlrLayerShell;
 znet_tapesoftware_dwl_wm_v1* dwlWm;
 int displayFd {-1};
-std::vector<std::string> tagNames;
 std::vector<std::string> layoutNames;
+int tagcount;
 static xdg_wm_base* xdgWmBase;
 static zxdg_output_manager_v1* xdgOutputManager;
 static wl_surface* cursorSurface;
@@ -201,8 +201,8 @@ static const struct wl_seat_listener seatListener = {
 };
 
 static const struct znet_tapesoftware_dwl_wm_v1_listener dwlWmListener = {
-	.tag = [](void*, znet_tapesoftware_dwl_wm_v1*, const char* name) {
-		tagNames.push_back(name);
+	.tag = [](void*, znet_tapesoftware_dwl_wm_v1*, int count) {
+		tagcount = count;
 	},
 	.layout = [](void*, znet_tapesoftware_dwl_wm_v1*, const char* name) {
 		layoutNames.push_back(name);

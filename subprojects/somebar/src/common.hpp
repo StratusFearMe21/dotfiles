@@ -41,7 +41,7 @@ extern int pollOut;
 extern wl_compositor* compositor;
 extern wl_shm* shm;
 extern zwlr_layer_shell_v1* wlrLayerShell;
-extern std::vector<std::string> tagNames;
+extern int tagcount;
 extern std::vector<std::string> layoutNames;
 
 void view(Monitor& m, const Arg& arg);

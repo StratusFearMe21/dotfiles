@@ -55,13 +55,13 @@
 			<arg name="output" type="object" interface="wl_output" />
 		</request>
 
-		<event name="tag">
-			<description summary="announces the presence of a tag">
-				This event is sent immediately after binding.
-				A roundtrip after binding guarantees that the client has received all tags.
-			</description>
-			<arg name="name" type="string"/>
-		</event>
+    <event name="tag">
+        <description summary="announces the number of tags">
+            This event is sent immediately after binding.
+            A roundtrip after binding guarantees that the client has received all tags.
+        </description>
+        <arg name="count" type="int"/>
+    </event>
 
 		<event name="layout">
 			<description summary="announces the presence of a layout">
