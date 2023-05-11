@@ -1,2 +1,4 @@
 dotfiles-*.pkg.tar.zst
+subprojects/libliftoff/
+subprojects/wlroots/
 target/
