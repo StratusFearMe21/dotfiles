@@ -1,5 +1,5 @@
 pkgname=dotfiles
-pkgver=0.20.2
+pkgver=0.22.0
 pkgrel=1
 pkgdesc='All my dotfiles as one package'
 arch=('any')
@@ -88,6 +88,7 @@ depends=(
   xdg-user-dirs
   execline
   ntp
+  mpv
 )
 makedepends=(
   mold
@@ -109,7 +110,6 @@ build() {
     -Ddwl:xwayland=enabled
 
   meson compile -C build
-  cargo build --release --target-dir "$srcdir/build/tuigreet/build" --manifest-path "$srcdir/../tuigreet/Cargo.toml"
 }
 
 package() {
@@ -117,13 +117,16 @@ package() {
   cd "$srcdir"
   meson install -C build --no-rebuild --destdir="$pkgdir"
   rm -rf "$pkgdir/usr/lib/librustbar.a"
+  mkdir -p "$pkgdir/etc/mpv/scripts"
+  ln -sf /usr/lib/liblistenbrainz_mpv.so "$pkgdir/etc/mpv/scripts/liblistenbrainz_mpv.so"
+  ln -sf /usr/share/mpv/scripts/autoload.lua "$pkgdir/etc/mpv/scripts/autoload.lua"
+  install -Dm644 ../mpv.conf "$pkgdir/etc/mpv"
   install -Dm644 ../myprofile.sh "$pkgdir/etc/profile.d/myprofile.sh"
   install -Dm644 ../cargo-env.sh "$pkgdir/etc/profile.d/cargo-env.sh"
   install -Dm644 ../rust.png "$pkgdir/usr/share/backgrounds/rust.png"
   install -dm755 "$pkgdir/etc/s6-user"
   cp -r ../s6-user "$pkgdir/etc"
   install -Dm755 ../s6-db-reload-user "$pkgdir/usr/bin/s6-db-reload-user"
-  install -Dm755 "$srcdir/build/tuigreet/build/release/tuigreet" "$pkgdir/usr/bin/tuigreet"
   install -Dm755 ../wsetup "$pkgdir/etc/greetd/wsetup"
   install -Dm644 ../greetd-config.toml "$pkgdir/etc/greetd/config.dotfile.toml"
   install -Dm644 ../dwl.desktop "$pkgdir/usr/share/wayland-sessions/dwl.desktop"

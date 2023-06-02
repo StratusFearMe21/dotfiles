@@ -9,9 +9,9 @@ edition = "2021"
 name = "rustbar"
 crate-type = ["staticlib", "rlib"]
 
-[[bin]]
-name = "rustbar"
-path = "src/main.rs"
+# [[bin]]
+# name = "rustbar"
+# path = "src/i3-main.rs"
 
 [dependencies]
 calloop = "0.10.5"
@@ -23,11 +23,6 @@ num_enum = "0.5.11"
 rand = { version = "0.8.5", default-features = false, features = ["std"] }
 time = { version = "0.3.20", features = ["local-offset", "formatting"] }
 tz-rs = "0.6.14"
-
-[profile.release]
-lto = true
-codegen-units = 1
-panic = "abort"
 
 [features]
 i3bar = []

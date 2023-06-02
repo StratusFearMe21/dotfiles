@@ -15,7 +15,7 @@ pangocairo_dep = dependency('pangocairo')
 
 subdir('protocols')
 
-rustbar = subproject('rustbar')
+rustbar = subproject('rust-workspace')
 rustbar_dep = rustbar.get_variable('rustbar')
 
 executable('somebar',
