@@ -1,0 +1,3 @@
+inherits = "ayu_dark"
+
+"ui.virtual.inlay-hint" = { fg = "gray" }

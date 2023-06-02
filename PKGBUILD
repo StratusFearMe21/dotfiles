@@ -1,5 +1,5 @@
 pkgname=dotfiles
-pkgver=0.17.4
+pkgver=0.20.2
 pkgrel=1
 pkgdesc='All my dotfiles as one package'
 arch=('any')
@@ -77,7 +77,7 @@ depends=(
   pipewire-pulse
   wireplumber
   pueue
-  swaybg
+  wbg
   xorg-xwayland
   dashbinsh
   ttf-fira-code
@@ -87,6 +87,7 @@ depends=(
   tofi
   xdg-user-dirs
   execline
+  ntp
 )
 makedepends=(
   mold
@@ -132,9 +133,9 @@ package() {
   install -Dm755 ../config.nu "$pkgdir/usr/share/dotfiles/config.nu"
   install -dm755 "$pkgdir/usr/share/dotfiles/chrome"
   cp -r ../chrome "$pkgdir/usr/share/dotfiles"
+  cp -r ../helix "$pkgdir/usr/share/dotfiles"
   cp -r ../pipewire "$pkgdir/etc"
   install -Dm644 ../user-overrides.js "$pkgdir/usr/share/dotfiles/user-overrides.js"
-  install -Dm644 ../helix-config.toml "$pkgdir/usr/share/dotfiles/helix-config.toml"
   install -Dm644 ../tofi-config "$pkgdir/usr/share/dotfiles/tofi-config" 
   install -Dm755 ../link-dotfiles "$pkgdir/usr/share/dotfiles/link-dotfiles"
 }

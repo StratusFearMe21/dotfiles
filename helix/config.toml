@@ -1,0 +1,28 @@
+theme = "mine"
+
+[editor]
+line-number = "relative"
+mouse = false
+color-modes = true
+middle-click-paste = false
+completion-replace = true
+bufferline = "multiple"
+
+[editor.statusline]
+left = ["mode", "spacer", "spinner", "file-name"]
+
+
+[editor.cursor-shape]
+insert = "bar"
+normal = "block"
+select = "underline"
+
+[editor.file-picker]
+hidden = false
+
+[editor.lsp]
+display-inlay-hints = true
+display-messages = true
+
+[editor.soft-wrap]
+enable = true

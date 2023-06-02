@@ -813,8 +813,14 @@ commitlayersurfacenotify(struct wl_listener *listener, void *data)
 
 	/* For some reason this layersurface have no monitor, this can be because
 	 * its monitor has just been destroyed */
-	if (!wlr_output || !(layersurface->mon = wlr_output->data))
+	if (!wlr_output) {
+		wlr_layer_surface_v1_destroy(wlr_layer_surface);
 		return;
+	}
+		
+	if (!(layersurface->mon = wlr_output->data))
+		return;
+
 
 	if (layers[wlr_layer_surface->current.layer] != layersurface->scene->node.parent) {
 		wlr_scene_node_reparent(&layersurface->scene->node,
@@ -1652,12 +1658,7 @@ mapnotify(struct wl_listener *listener, void *data)
 	c->geom.height += 2 * c->bw;
 
 	/* Insert this client into client lists. */
-	if (clients.prev)
-		// tile at the bottom
-		wl_list_insert(clients.prev, &c->link);
-	else
-		wl_list_insert(&clients, &c->link);
-
+	wl_list_insert(&clients, &c->link);
 	wl_list_insert(&fstack, &c->flink);
 
 	/* Set initial monitor, tags, floating status, and focus:
@@ -1928,9 +1929,6 @@ void
 printstatus(void)
 {
 	Monitor *m = NULL;
-	Client *c;
-	uint32_t occ, urg, sel;
-	const char *appid, *title;
 
 	wl_list_for_each(m, &mons, link)
 		dwl_wm_printstatus(m);
@@ -2024,7 +2022,7 @@ run()
 	if (!socket)
 		die("startup: display_add_socket_auto");
 	setenv("WAYLAND_DISPLAY", socket, 1);
-	setenv("XDG_CURRENT_DESKTOP", "dwl", 1);
+	setenv("XDG_CURRENT_DESKTOP", "wlroots", 1);
 
 	/* Start the backend. This will enumerate outputs and inputs, become the DRM
 	 * master, etc */
@@ -2862,8 +2860,6 @@ sigchld(int unused)
 	 * but the Xwayland implementation in wlroots currently prevents us from
 	 * setting our own disposition for SIGCHLD.
 	 */
-	if (signal(SIGCHLD, sigchld) == SIG_ERR)
-		die("can't install SIGCHLD handler:");
 	/* WNOWAIT leaves the child in a waitable state, in case this is the
 	 * XWayland process
 	 */
@@ -2902,7 +2898,6 @@ xwaylandready(struct wl_listener *listener, void *data)
 	netatom[NetWMWindowTypeSplash] = getatom(xc, "_NET_WM_WINDOW_TYPE_SPLASH");
 	netatom[NetWMWindowTypeToolbar] = getatom(xc, "_NET_WM_WINDOW_TYPE_TOOLBAR");
 	netatom[NetWMWindowTypeUtility] = getatom(xc, "_NET_WM_WINDOW_TYPE_UTILITY");
-		
 
 	/* assign the one and only seat */
 	wlr_xwayland_set_seat(xwayland, seat);
@@ -2921,17 +2916,6 @@ xwaylandready(struct wl_listener *listener, void *data)
 int
 main(int argc, char *argv[])
 {
-	int c;
-
-	while ((c = getopt(argc, argv, "hv")) != -1) {
-		if (c == 'v')
-			die("dwl " VERSION);
-		else
-			goto usage;
-	}
-	if (optind < argc)
-		goto usage;
-
 	int rfkill = open("/dev/rfkill", O_CLOEXEC);
 	if (rfkill < 0) {
 		die("open");
@@ -2951,9 +2935,6 @@ main(int argc, char *argv[])
 	run();
 	cleanup();
 	return EXIT_SUCCESS;
-
-usage:
-	die("Usage: %s [-v] [-s startup command]", argv[0]);
 }
 
 /* dwl_wm_monitor_v1 */

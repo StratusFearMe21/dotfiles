@@ -8,6 +8,6 @@
 }
 
 ifelse { test -w /tmp/${USER}/log } {
-    foreground { mkdir -p /tmp/${USER}/log/swaybg }
-    exec -c s6-log -d3 -b -- ${DIRECTIVES} /tmp/${USER}/log/swaybg
+    foreground { mkdir -p /tmp/${USER}/log/wbg }
+    exec -c s6-log -d3 -b -- ${DIRECTIVES} /tmp/${USER}/log/wbg
 }

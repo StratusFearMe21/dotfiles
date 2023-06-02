@@ -1,18 +1,20 @@
 use std::collections::HashMap;
+#[cfg(not(feature = "i3bar"))]
 use std::ffi::c_char;
+#[cfg(not(feature = "i3bar"))]
 use std::ffi::c_int;
 use std::ffi::c_void;
+#[cfg(not(feature = "i3bar"))]
 use std::ffi::CString;
 use std::fmt::Debug;
 use std::fmt::Display;
-#[cfg(feature = "i3bar")]
-use std::io::stdout;
 use std::io::BufWriter;
 use std::io::Read;
 use std::io::Write;
 use std::mem::MaybeUninit;
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
+use std::process::Command;
 use std::str::FromStr;
 use std::time::Duration;
 use std::time::Instant;
@@ -30,6 +32,8 @@ use dbus::message::MatchRule;
 use nix::sys::inotify::AddWatchFlags;
 use nix::sys::inotify::InitFlags;
 use nix::sys::inotify::Inotify;
+use rand::rngs::OsRng;
+use rand::seq::SliceRandom;
 use time::format_description;
 use time::format_description::modifier::Day;
 use time::format_description::modifier::Hour;
@@ -178,6 +182,23 @@ macro_rules! match_brightness {
     };
 }
 
+macro_rules! update_time {
+    ($shared_data:expr) => {
+        $shared_data.get_shared_data().is_time_updated = true;
+        let mut servers = NTP_SERVERS.to_vec();
+        servers.shuffle(&mut OsRng);
+        let mut args = String::new();
+        args.push_str("doas ntpdate ");
+        for server in servers {
+            args.push_str(server);
+            args.push(' ');
+        }
+        args.pop();
+        args.push_str("; doas hwclock -w");
+        Command::new("sh").arg("-c").arg(args).spawn().unwrap();
+    };
+}
+
 pub trait GetSharedData<F: FnMut(Vec<u8>)> {
     fn get_shared_data(&mut self) -> &mut SharedData<F>;
 }
@@ -186,7 +207,7 @@ pub struct SharedData<F: FnMut(Vec<u8>)> {
     playing: PlaybackStatus,
     song_metadata: (String, String),
     now: OffsetDateTime,
-    time_offset: i32,
+    is_time_updated: bool,
     connected_service: String,
     online: ConnmanState,
     brightness: usize,
@@ -218,15 +239,36 @@ const DATE_FMT: [format_description::FormatItem; 5] = [
     format_description::FormatItem::Component(format_description::Component::Year(Year::default())),
 ];
 
+const NTP_SERVERS: [&str; 18] = [
+    "time-a-g.nist.gov",
+    "time-b-g.nist.gov",
+    "time-c-g.nist.gov",
+    "time-d-g.nist.gov",
+    "time-e-g.nist.gov",
+    "time-a-wwv.nist.gov",
+    "time-b-wwv.nist.gov",
+    "time-c-wwv.nist.gov",
+    "time-d-wwv.nist.gov",
+    "time-e-wwv.nist.gov",
+    "time-a-b.nist.gov",
+    "time-b-b.nist.gov",
+    "time-c-b.nist.gov",
+    "time-d-b.nist.gov",
+    "time-e-b.nist.gov",
+    "utcnist.colorado.edu",
+    "utcnist2.colorado.edu",
+    "utcnist3.colorado.edu",
+];
+
 impl<F: FnMut(Vec<u8>)> SharedData<F> {
     pub fn new(signal: LoopSignal, callback: F) -> Self {
+        let now = time::OffsetDateTime::now_utc();
         let timezone = tz::TimeZone::local().unwrap();
         let time_offset = timezone.find_current_local_time_type().unwrap().ut_offset();
-        let now = time::OffsetDateTime::now_utc()
-            .to_offset(UtcOffset::from_whole_seconds(time_offset).unwrap());
+        let now = now.to_offset(UtcOffset::from_whole_seconds(time_offset).unwrap());
         Self {
             now,
-            time_offset,
+            is_time_updated: false,
             playing: Default::default(),
             song_metadata: Default::default(),
             connected_service: Default::default(),
@@ -616,6 +658,13 @@ pub fn insert_into_loop<F: FnMut(Vec<u8>), G: GetSharedData<F>>(
         )
         .unwrap();
 
+        if matches!(
+            shared_data.get_shared_data().online,
+            ConnmanState::Ready | ConnmanState::Online
+        ) {
+            update_time!(shared_data);
+        }
+
         shared_data.get_shared_data().connected_service = connman_proxy
             .get_services()
             .unwrap()
@@ -724,14 +773,25 @@ pub fn insert_into_loop<F: FnMut(Vec<u8>), G: GetSharedData<F>>(
                 },
             )
             .unwrap();
+        // The only child process we spawn is ntpdate ever
+        handle
+            .insert_source(
+                Signals::new(&[Signal::SIGCHLD]).unwrap(),
+                move |_, _, shared_data| {
+                    let now = time::OffsetDateTime::now_utc();
+                    let timezone = tz::TimeZone::local().unwrap();
+                    let time_offset = timezone.find_current_local_time_type().unwrap().ut_offset();
+                    shared_data.get_shared_data().now =
+                        now.to_offset(UtcOffset::from_whole_seconds(time_offset).unwrap());
+                    write_bar!(shared_data);
+                },
+            )
+            .unwrap();
         handle
             .insert_source(
                 Timer::from_deadline(timer_start),
                 |_event, _metadata, shared_data| {
-                    shared_data.get_shared_data().now = time::OffsetDateTime::now_utc().to_offset(
-                        UtcOffset::from_whole_seconds(shared_data.get_shared_data().time_offset)
-                            .unwrap(),
-                    );
+                    shared_data.get_shared_data().now += time::Duration::minutes(1);
                     write_bar!(shared_data);
                     calloop::timer::TimeoutAction::ToDuration(Duration::from_secs(60))
                 },
@@ -866,6 +926,11 @@ pub fn insert_into_loop<F: FnMut(Vec<u8>), G: GetSharedData<F>>(
                                 })
                                 .map(|f| f.1.get("Name").unwrap().0.as_str().unwrap().to_owned())
                                 .unwrap_or_default();
+                            if !shared_data.get_shared_data().is_time_updated {
+                                update_time!(shared_data);
+                            }
+                        } else {
+                            shared_data.get_shared_data().is_time_updated = false;
                         }
 
                         write_bar!(shared_data);
@@ -897,7 +962,7 @@ pub fn insert_into_loop<F: FnMut(Vec<u8>), G: GetSharedData<F>>(
     }
 }
 
-pub struct SharedDataTransparent<F: FnMut(Vec<u8>)>(SharedData<F>);
+pub struct SharedDataTransparent<F: FnMut(Vec<u8>)>(pub SharedData<F>);
 
 impl<F: FnMut(Vec<u8>)> GetSharedData<F> for SharedDataTransparent<F> {
     fn get_shared_data(&mut self) -> &mut SharedData<F> {
@@ -906,6 +971,7 @@ impl<F: FnMut(Vec<u8>)> GetSharedData<F> for SharedDataTransparent<F> {
 }
 
 #[no_mangle]
+#[cfg(not(feature = "i3bar"))]
 pub extern "C" fn init() {
     let mut event_loop: EventLoop<_> = EventLoop::try_new().unwrap();
     let mut shared_data =
@@ -916,7 +982,6 @@ pub extern "C" fn init() {
     let handle = event_loop.handle();
     insert_into_loop(&mut event_loop, &mut shared_data);
 
-    #[cfg(not(feature = "i3bar"))]
     handle
         .insert_source(
             Generic::new(unsafe { displayFd }, Interest::READ, calloop::Mode::Level),
@@ -935,6 +1000,4 @@ pub extern "C" fn init() {
             wl_display_flush(display);
         })
         .unwrap();
-    #[cfg(feature = "i3bar")]
-    event_loop.run(None, &mut shared_data, |_| {}).unwrap();
 }
