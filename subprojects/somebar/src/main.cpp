@@ -7,6 +7,7 @@
 #include <optional>
 #include <utility>
 #include <vector>
+#include <iostream>
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
@@ -56,8 +57,10 @@ static void onGlobalAdd(void*, wl_registry* registry, uint32_t name, const char*
 static void onGlobalRemove(void*, wl_registry* registry, uint32_t name);
 static void requireGlobal(const void* p, const char* name);
 extern "C" void init();
+extern "C" void config();
 
 wl_display* display;
+Glib::ustring font;
 wl_compositor* compositor;
 wl_shm* shm;
 zwlr_layer_shell_v1* wlrLayerShell;
@@ -289,6 +292,7 @@ void onReady()
 		setupMonitor(output.first, output.second);
 	}
 }
+
 
 extern "C" void onStatus(const char *status) {
 	for (auto &monitor : monitors) {

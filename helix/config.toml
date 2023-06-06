@@ -9,7 +9,7 @@ completion-replace = true
 bufferline = "multiple"
 
 [editor.statusline]
-left = ["mode", "spacer", "spinner", "file-name"]
+left = ["mode", "spacer", "spinner", "file-name", "file-modification-indicator"]
 
 
 [editor.cursor-shape]

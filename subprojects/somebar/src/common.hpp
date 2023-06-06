@@ -9,6 +9,7 @@
 #include <linux/input-event-codes.h>
 #include <cairo/cairo.h>
 #include <pango/pango.h>
+#include <giomm/settings.h>
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "net-tapesoftware-dwl-wm-unstable-v1-client-protocol.h"
 
@@ -35,6 +36,7 @@ struct Button {
 	const Arg arg;
 };
 
+
 extern wl_display* display;
 extern int displayFd;
 extern int pollOut;
@@ -43,6 +45,7 @@ extern wl_shm* shm;
 extern zwlr_layer_shell_v1* wlrLayerShell;
 extern int tagcount;
 extern std::vector<std::string> layoutNames;
+extern Glib::ustring font;
 
 void view(Monitor& m, const Arg& arg);
 void toggleview(Monitor& m, const Arg& arg);

@@ -1,5 +1,5 @@
 pkgname=dotfiles
-pkgver=0.22.0
+pkgver=0.28.4
 pkgrel=1
 pkgdesc='All my dotfiles as one package'
 arch=('any')
@@ -89,6 +89,12 @@ depends=(
   execline
   ntp
   mpv
+  gtk3
+  glib2
+  dconf
+  bibata-cursor-theme
+  materia-gtk-theme
+  papirus-icon-theme
 )
 makedepends=(
   mold
@@ -140,5 +146,9 @@ package() {
   cp -r ../pipewire "$pkgdir/etc"
   install -Dm644 ../user-overrides.js "$pkgdir/usr/share/dotfiles/user-overrides.js"
   install -Dm644 ../tofi-config "$pkgdir/usr/share/dotfiles/tofi-config" 
+  install -Dm644 ../gtk-3.0-settings.ini "$pkgdir/usr/share/dotfiles/gtk-3.0-settings.ini"
+  install -Dm644 ../dconf.ini "$pkgdir/usr/share/dotfiles/dconf.ini"
+  install -Dm644 ../dconf/dotfiles.somebar.gschema.xml "$pkgdir/usr/share/glib-2.0/schemas/dotfiles.somebar.gschema.xml"
+  install -Dm644 ../dconf/dotfiles.dwl.gschema.xml "$pkgdir/usr/share/glib-2.0/schemas/dotfiles.dwl.gschema.xml"
   install -Dm755 ../link-dotfiles "$pkgdir/usr/share/dotfiles/link-dotfiles"
 }

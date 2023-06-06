@@ -14,6 +14,11 @@ wayland_server_dep = dependency('wayland-server')
 wlroots_dep = dependency('wlroots')
 xkbcommon_dep = dependency('xkbcommon')
 libinput_dep = dependency('libinput')
+dconf_dep = dependency('dconf')
+dbus_dep = dependency('dbus-1')
+
+dbus_dwl = subproject('rust-workspace')
+dbus_dwl_dep = dbus_dwl.get_variable('dbus_dwl')
 
 c_args = [
   '-DWLR_USE_UNSTABLE',
@@ -33,6 +38,9 @@ executable('dwl',
     libm,
     xcb,
     xlibs,
+    dconf_dep,
+    dbus_dep,
+    dbus_dwl_dep,
     wayland_server_dep,
     wlroots_dep,
     xkbcommon_dep,

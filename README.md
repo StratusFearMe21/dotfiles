@@ -42,3 +42,16 @@ is as simple as upgrading the package.
 ### Does it work?
 
 Yes, I tested it on a fresh install of Artix and worked out all the kinks!
+
+### Per-Machine Configuration *(NEW)*
+
+My DWL and somebar builds now support having differing configurations between machines without
+having to re-compile everything. You simply need to install `dconf-editor`
+
+```shell
+sudo pacman -S dconf-editor
+```
+
+From there you can navigate into the `dotfiles` folder and change various settings from there!
+
+![dconf-editor demo](screenshot-dconf.png)

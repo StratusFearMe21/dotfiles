@@ -1,0 +1,17 @@
+[package]
+name = "calloop-dbus"
+version = "0.1.1"
+authors = ["Alexander Sieg <alex@xanderio.de>"]
+edition = "2018"
+description = "EventSource to use DBus with the calloop event loop."
+readme = "README.md"
+repository = "https://git.cyber-missile.io/xanderio/calloop-dbus"
+license = "BSD-2-Clause"
+keywords = ["eventloop", "calloop", "dbus"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+calloop = "0.10"
+dbus = "0.9"
+log = "0.4"

@@ -5,6 +5,8 @@
 #include <libinput.h>
 #include <limits.h>
 #include <linux/rfkill.h>
+#include <stdint.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <linux/input-event-codes.h>
@@ -16,6 +18,8 @@
 #include <time.h>
 #include <unistd.h>
 #include <wayland-server-core.h>
+#include <dconf/client/dconf-client.h>
+#include <dbus/dbus.h>
 #include <wlr/backend.h>
 #include <wlr/backend/libinput.h>
 #include <wlr/render/allocator.h>
@@ -60,6 +64,7 @@
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/util/log.h>
 #include <xkbcommon/xkbcommon.h>
+#include "dbus/dbus-shared.h"
 #include "net-tapesoftware-dwl-wm-unstable-v1-protocol.h"
 #ifdef XWAYLAND
 #include <wlr/xwayland.h>
@@ -70,8 +75,6 @@
 #include "util.h"
 
 /* macros */
-#define MAX(A, B)               ((A) > (B) ? (A) : (B))
-#define MIN(A, B)               ((A) < (B) ? (A) : (B))
 #define CLEANMASK(mask)         (mask & ~WLR_MODIFIER_CAPS)
 #define VISIBLEON(C, M)         ((M) && (C)->mon == (M) && ((C)->tags & (M)->tagset[(M)->seltags]))
 #define LENGTH(X)               (sizeof X / sizeof X[0])
@@ -97,11 +100,17 @@ typedef union {
 } Arg;
 
 typedef struct {
-	unsigned int mod;
 	unsigned int button;
 	void (*func)(const Arg *);
 	const Arg arg;
 } Button;
+
+struct DBusWatchRs {
+	int fd;
+	int read;
+	int write;
+	void *data;
+};
 
 typedef struct Monitor Monitor;
 typedef struct {
@@ -138,6 +147,7 @@ typedef struct {
 } Client;
 
 typedef struct {
+	int use_mod;
 	uint32_t mod;
 	xkb_keysym_t keysym;
 	void (*func)(const Arg *);
@@ -330,6 +340,7 @@ static void setmon(Client *c, Monitor *m, uint32_t newtags);
 static void setpsel(struct wl_listener *listener, void *data);
 static void setsel(struct wl_listener *listener, void *data);
 static void setup(void);
+static void config(void);
 static void sigchld(int unused);
 static void spawn(const Arg *arg);
 static void wob(const Arg *arg);
@@ -356,6 +367,9 @@ static void zoom(const Arg *arg);
 static void dwl_wm_bind(struct wl_client *client, void *data,
 		uint32_t version, uint32_t id);
 static void dwl_wm_printstatus(Monitor *monitor);
+
+extern struct DBusWatchRs get_fd();
+extern void process_dbus(void *data, void (*func)(const char*));
 
 /* variables */
 static const char broken[] = "broken";
@@ -443,6 +457,37 @@ static Atom netatom[NetLast];
 #endif
 
 static int wob_fd = -1;
+static enum wlr_keyboard_modifier modkey = WLR_MODIFIER_LOGO;
+
+static int sloppyfocus = 1;  /* focus follows mouse */
+static int bypass_surface_visibility = 0;  /* 1 means idle inhibitors will disable idle tracking even if it's surface isn't visible  */
+static unsigned int borderpx = 1;  /* border pixel of windows */
+static float bordercolor[] = {0.337, 0.357, 0.078, 1.0 };
+static float focuscolor[] = {  0.918, 0.424, 0.451, 1.0 };
+/* To conform the xdg-protocol, set the alpha to zero to restore the old behavior */
+static float fullscreen_bg[] = { 0.1, 0.1, 0.1, 1.0 };
+
+static int tagcount = 9;
+static struct xkb_rule_names xkb_rules = {
+	.options = "caps:swapescape,compose:ralt"
+};
+static int repeat_rate = 25;
+static int repeat_delay = 600;
+
+static int tap_to_click = 1;
+static int tap_and_drag = 1;
+static int drag_lock = 1;
+static int natural_scrolling = 0;
+static int disable_while_typing = 1;
+static int left_handed = 0;
+static int middle_button_emulation = 1;
+
+static enum libinput_config_scroll_method scroll_method = LIBINPUT_CONFIG_SCROLL_2FG;
+static enum libinput_config_click_method click_method = LIBINPUT_CONFIG_CLICK_METHOD_BUTTON_AREAS;
+static uint32_t send_events_mode = LIBINPUT_CONFIG_SEND_EVENTS_ENABLED;
+static enum libinput_config_accel_profile accel_profile = LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE;
+static double accel_speed = 0.0;
+static enum libinput_config_tap_button_map button_map = LIBINPUT_CONFIG_TAP_MAP_LRM;
 
 /* configuration, allows nested code to access above variables */
 #include "config.h"
@@ -452,6 +497,7 @@ static int wob_fd = -1;
 
 static pid_t *autostart_pids;
 static size_t autostart_len;
+static DConfClient *dconf_client;
 
 /* function implementations */
 void
@@ -486,7 +532,6 @@ autostartexec(void) {
 	const char *const *p;
 	size_t i = 0;
 
-	/* count entries */
 	for (p = autostart; *p; autostart_len++, p++)
 		while (*++p);
 
@@ -501,6 +546,7 @@ autostartexec(void) {
 		while (*++p);
 	}
 }
+
 
 void
 applyrules(Client *c)
@@ -654,7 +700,7 @@ buttonpress(struct wl_listener *listener, void *data)
 		keyboard = wlr_seat_get_keyboard(seat);
 		mods = keyboard ? wlr_keyboard_get_modifiers(keyboard) : 0;
 		for (b = buttons; b < END(buttons); b++) {
-			if (CLEANMASK(mods) == CLEANMASK(b->mod) &&
+			if (CLEANMASK(mods) == CLEANMASK(modkey) &&
 					event->button == b->button && b->func) {
 				b->func(&b->arg);
 				return;
@@ -1479,8 +1525,13 @@ keybinding(uint32_t mods, xkb_keysym_t sym)
 	 */
 	int handled = 0;
 	const Key *k;
+	int mod = 0;
 	for (k = keys; k < END(keys); k++) {
-		if (CLEANMASK(mods) == CLEANMASK(k->mod) &&
+		mod = k->mod;
+		if (k->use_mod) {
+			mod = modkey | mod;
+		}
+		if (CLEANMASK(mods) == CLEANMASK(mod) &&
 				sym == k->keysym && k->func) {
 			k->func(&k->arg);
 			handled = 1;
@@ -2013,11 +2064,57 @@ resize(Client *c, struct wlr_box geo, int interact)
 }
 
 void
+dbus_path_function(const char *path)
+{
+	GVariant *temp;
+	const gchar *tempStr;
+	gsize size;
+	
+	if (strcmp(path, "/dotfiles/dwl/modkey") == 0) {
+		temp = dconf_client_read(dconf_client, "/dotfiles/dwl/modkey");
+
+		if (temp) {
+			tempStr = g_variant_get_string(temp, &size);
+			if (strcmp(tempStr, "Shift") == 0) {
+				modkey = WLR_MODIFIER_SHIFT;
+			} else if (strcmp(tempStr, "Caps") == 0) {
+				modkey = WLR_MODIFIER_CAPS;
+			} else if (strcmp(tempStr, "Ctrl") == 0) {
+				 modkey = WLR_MODIFIER_CTRL;
+			} else if (strcmp(tempStr, "Alt") == 0) {
+				 modkey = WLR_MODIFIER_ALT;
+			} else if (strcmp(tempStr, "Mod2") == 0) {
+				 modkey = WLR_MODIFIER_MOD2;
+			} else if (strcmp(tempStr, "Mod3") == 0) {
+				 modkey = WLR_MODIFIER_MOD3;
+			} else if (strcmp(tempStr, "Logo") == 0) {
+				 modkey = WLR_MODIFIER_LOGO;
+			} else if (strcmp(tempStr, "Mod5") == 0) {
+				 modkey = WLR_MODIFIER_MOD5;
+			}
+		} else {
+			modkey = WLR_MODIFIER_LOGO;
+		}
+
+		g_free(temp);
+	}
+}
+
+int
+dbus_watch_func(int fd, uint32_t mask, void *data)
+{
+	process_dbus(data, dbus_path_function);
+	return 0;
+}
+
+void
 run()
 {
 	/* Add a Unix socket to the Wayland display. */
 	const char *socket = wl_display_add_socket_auto(dpy);
 	struct sigaction sa = {.sa_flags = SA_RESTART, .sa_handler = SIG_IGN};
+	struct DBusWatchRs dbus_watch;
+	int watch_flags = 0;
 	sigemptyset(&sa.sa_mask);
 	if (!socket)
 		die("startup: display_add_socket_auto");
@@ -2031,8 +2128,10 @@ run()
 
 	/* Now that the socket exists and the backend is started, run the startup command */
 	autostartexec();
+
 	/* If nobody is reading the status output, don't terminate */
 	sigaction(SIGPIPE, &sa, NULL);
+
 	printstatus();
 
 	/* At this point the outputs are initialized, choose initial selmon based on
@@ -2045,6 +2144,19 @@ run()
 	 * monitor when displayed here */
 	wlr_cursor_warp_closest(cursor, NULL, cursor->x, cursor->y);
 	wlr_xcursor_manager_set_cursor_image(cursor_mgr, cursor_image, cursor);
+
+	dbus_watch = get_fd();
+
+	if (dbus_watch.read) {
+		watch_flags |= WL_EVENT_READABLE;
+	}
+
+	if (dbus_watch.write) {
+		watch_flags |= WL_EVENT_WRITABLE;
+	}
+
+	wl_event_loop_add_fd(wl_display_get_event_loop(dpy),dbus_watch.fd, watch_flags, dbus_watch_func, dbus_watch.data);
+
 
 	/* Run the Wayland event loop. This does not return until you exit the
 	 * compositor. Starting the backend rigged up all of the necessary event
@@ -2183,8 +2295,272 @@ setsel(struct wl_listener *listener, void *data)
 }
 
 void
-setup(void)
+config(void)
 {
+	GVariant *temp = NULL;
+	dconf_client = dconf_client_new();
+	gsize size;
+	const gchar *tempStr;
+	double c1, c2, c3, c4;
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/accel-profile");
+
+	if (temp) {
+		tempStr = g_variant_get_string(temp, &size);
+		if (strcmp(tempStr, "None") == 0) {
+			accel_profile = LIBINPUT_CONFIG_ACCEL_PROFILE_NONE;
+		} else if (strcmp(tempStr, "Flat") == 0) {
+			accel_profile = LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT;
+		} else if (strcmp(tempStr, "Adaptive") == 0) {
+			accel_profile = LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE;
+		}
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/accel-speed");
+
+	if (temp) {
+		accel_speed = g_variant_get_double(temp);
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/border-color");
+
+	if (temp) {
+		g_variant_get(temp, "(dddd)", &c1, &c2, &c3, &c4);
+		bordercolor[0] = c1;
+		bordercolor[1] = c2;
+		bordercolor[2] = c3;
+		bordercolor[3] = c4;
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/border-px");
+
+	if (temp) {
+		borderpx = g_variant_get_int32(temp);
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/button-map");
+
+	if (temp) {
+		tempStr = g_variant_get_string(temp, &size);
+		if (strcmp(tempStr, "LRM") == 0) {
+			button_map = LIBINPUT_CONFIG_TAP_MAP_LRM;
+		} else if (strcmp(tempStr, "LMR") == 0) {
+			button_map = LIBINPUT_CONFIG_TAP_MAP_LMR;
+		}
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/bypass-surface-visibility");
+
+	if (temp) {
+		bypass_surface_visibility = g_variant_get_boolean(temp);
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/click-method");
+
+	if (temp) {
+		tempStr = g_variant_get_string(temp, &size);
+		if (strcmp(tempStr, "None") == 0) {
+			click_method = LIBINPUT_CONFIG_CLICK_METHOD_NONE;
+		} else if (strcmp(tempStr, "Button Areas") == 0) {
+			click_method = LIBINPUT_CONFIG_CLICK_METHOD_BUTTON_AREAS;
+		} else if (strcmp(tempStr, "Click Finger") == 0) {
+			click_method = LIBINPUT_CONFIG_CLICK_METHOD_CLICKFINGER;
+		}
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/disable-trackpad-while-typing");
+
+	if (temp) {
+		disable_while_typing = g_variant_get_boolean(temp);
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/drag-lock");
+
+	if (temp) {
+		drag_lock = g_variant_get_boolean(temp);
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/focus-color");
+
+	if (temp) {
+		g_variant_get(temp, "(dddd)", &c1, &c2, &c3, &c4);
+		focuscolor[0] = c1;
+		focuscolor[1] = c2;
+		focuscolor[2] = c3;
+		focuscolor[3] = c4;
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/fullscreen-bg");
+
+	if (temp) {
+		g_variant_get(temp, "(dddd)", &c1, &c2, &c3, &c4);
+		fullscreen_bg[0] = c1;
+		fullscreen_bg[1] = c2;
+		fullscreen_bg[2] = c3;
+		fullscreen_bg[3] = c4;
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/left-handed");
+
+	if (temp) {
+		left_handed = g_variant_get_boolean(temp);
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/middle-button-emulation");
+
+	if (temp) {
+		middle_button_emulation = g_variant_get_boolean(temp);
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/modkey");
+
+	if (temp) {
+		tempStr = g_variant_get_string(temp, &size);
+		if (strcmp(tempStr, "Shift") == 0) {
+			modkey = WLR_MODIFIER_SHIFT;
+		} else if (strcmp(tempStr, "Caps") == 0) {
+			modkey = WLR_MODIFIER_CAPS;
+		} else if (strcmp(tempStr, "Ctrl") == 0) {
+			 modkey = WLR_MODIFIER_CTRL;
+		} else if (strcmp(tempStr, "Alt") == 0) {
+			 modkey = WLR_MODIFIER_ALT;
+		} else if (strcmp(tempStr, "Mod2") == 0) {
+			 modkey = WLR_MODIFIER_MOD2;
+		} else if (strcmp(tempStr, "Mod3") == 0) {
+			 modkey = WLR_MODIFIER_MOD3;
+		} else if (strcmp(tempStr, "Logo") == 0) {
+			 modkey = WLR_MODIFIER_LOGO;
+		} else if (strcmp(tempStr, "Mod5") == 0) {
+			 modkey = WLR_MODIFIER_MOD5;
+		}
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/natural-scrolling");
+
+	if (temp) {
+		natural_scrolling = g_variant_get_boolean(temp);
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/repeat-delay");
+
+	if (temp) {
+		repeat_delay = g_variant_get_int32(temp);
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/repeat-rate");
+
+	if (temp) {
+		repeat_rate = g_variant_get_int32(temp);
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/scroll-method");
+
+	if (temp) {
+		tempStr = g_variant_get_string(temp, &size);
+		if (strcmp(tempStr, "No Scroll") == 0) {
+			scroll_method = LIBINPUT_CONFIG_SCROLL_NO_SCROLL;
+		} else if (strcmp(tempStr, "Two Finger") == 0) {
+			scroll_method = LIBINPUT_CONFIG_SCROLL_2FG;
+		} else if (strcmp(tempStr, "Edge") == 0) {
+			scroll_method = LIBINPUT_CONFIG_SCROLL_EDGE;
+		} else if (strcmp(tempStr, "On Button Down") == 0) {
+			scroll_method = LIBINPUT_CONFIG_SCROLL_ON_BUTTON_DOWN;
+		}
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/send-events-mode");
+
+	if (temp) {
+		tempStr = g_variant_get_string(temp, &size);
+		if (strcmp(tempStr, "Enabled") == 0) {
+			send_events_mode = LIBINPUT_CONFIG_SEND_EVENTS_ENABLED;
+		} else if (strcmp(tempStr, "Disabled") == 0) {
+			send_events_mode = LIBINPUT_CONFIG_SEND_EVENTS_DISABLED;
+		} else if (strcmp(tempStr, "Disabled on External Mouse") == 0) {
+			send_events_mode = LIBINPUT_CONFIG_SEND_EVENTS_DISABLED_ON_EXTERNAL_MOUSE;
+		}
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/sloppy-focus");
+
+	if (temp) {
+		sloppyfocus = g_variant_get_boolean(temp);
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/tag-count");
+
+	if (temp) {
+		tagcount = g_variant_get_int32(temp);
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/tap-to-click");
+
+	if (temp) {
+		tap_to_click = g_variant_get_boolean(temp);
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/tap-to-drag");
+
+	if (temp) {
+		tap_and_drag = g_variant_get_boolean(temp);
+	}
+
+	g_free(temp);
+
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/xkb-options");
+
+	if (temp) {
+		xkb_rules.options = g_variant_get_string(temp, &size);
+	}
+}
+
+void
+setup(void)
+{	
 	struct sigaction sa_term = {.sa_flags = SA_RESTART, .sa_handler = quitsignal};
 	struct sigaction sa_sigchld = {
 #ifdef XWAYLAND
@@ -2931,6 +3307,7 @@ main(int argc, char *argv[])
 	/* Wayland requires XDG_RUNTIME_DIR for creating its communications socket */
 	if (!getenv("XDG_RUNTIME_DIR"))
 		die("XDG_RUNTIME_DIR must be set");
+	config();
 	setup();
 	run();
 	cleanup();

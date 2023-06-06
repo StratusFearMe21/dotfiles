@@ -4,8 +4,9 @@ mod = import('unstable-external_project')
 
 p = mod.add_project(
   'sh',
-  configure_options: ['-c', 'echo .PHONY: rust\\\\nrust:\\\\n\\\\tcargo build --release --target-dir . --manifest-path $(dirname "$0")/Cargo.toml\\\\ninstall: rust\\\\n\\\\tmkdir -p \$\(DESTDIR\)@PREFIX@/@LIBDIR@\\\\n\\\\tmkdir -p \$\(DESTDIR\)@PREFIX@/bin\\\\n\\\\tinstall -m 755 release/librustbar.a \$\(DESTDIR\)@PREFIX@/@LIBDIR@\\\\n\\\\tinstall -m 755 release/liblistenbrainz_mpv.so \$\(DESTDIR\)@PREFIX@/@LIBDIR@\\\\n\\\\tinstall -m 755 release/tuigreet \$\(DESTDIR\)@PREFIX@/bin > Makefile'],
+  configure_options: ['-c', 'echo .PHONY: rust\\\\nrust:\\\\n\\\\tcargo build --release --target-dir . --manifest-path $(dirname "$0")/Cargo.toml\\\\ninstall: rust\\\\n\\\\tmkdir -p \$\(DESTDIR\)@PREFIX@/@LIBDIR@\\\\n\\\\tmkdir -p \$\(DESTDIR\)@PREFIX@/bin\\\\n\\\\tinstall -m 755 release/librustbar.a \$\(DESTDIR\)@PREFIX@/@LIBDIR@\\\\n\\\\tinstall -m 755 release/liblistenbrainz_mpv.so \$\(DESTDIR\)@PREFIX@/@LIBDIR@\\\\n\\\\tinstall -m 755 release/libdbus_dwl.a \$\(DESTDIR\)@PREFIX@/@LIBDIR@\\\\n\\\\tinstall -m 755 release/tuigreet \$\(DESTDIR\)@PREFIX@/bin > Makefile'],
   verbose: true
 )
 
+dbus_dwl = p.dependency('dbus_dwl')
 rustbar = p.dependency('rustbar')

@@ -11,10 +11,14 @@ use std::fmt::Display;
 use std::io::BufWriter;
 use std::io::Read;
 use std::io::Write;
+use std::mem::ManuallyDrop;
 use std::mem::MaybeUninit;
+use std::ops::Deref;
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
+use std::pin::Pin;
 use std::process::Command;
+use std::ptr::NonNull;
 use std::str::FromStr;
 use std::time::Duration;
 use std::time::Instant;
@@ -26,9 +30,16 @@ use calloop::signals::Signals;
 use calloop::timer::Timer;
 use calloop::EventLoop;
 use calloop::Interest;
+use calloop::LoopHandle;
 use calloop::LoopSignal;
+use calloop::RegistrationToken;
+use calloop_dbus::SyncDBusSource;
 use dbus::arg::RefArg;
 use dbus::message::MatchRule;
+use dconf_sys::dconf_client_new;
+use dconf_sys::dconf_client_read;
+use dconf_sys::DConfClient;
+use glib::FromVariant;
 use nix::sys::inotify::AddWatchFlags;
 use nix::sys::inotify::InitFlags;
 use nix::sys::inotify::Inotify;
@@ -50,6 +61,7 @@ use crate::upower::OrgFreedesktopUPower;
 use crate::upower::OrgFreedesktopUPowerDevice;
 
 mod connman;
+mod dconf;
 mod mpris;
 mod upower;
 
@@ -183,8 +195,8 @@ macro_rules! match_brightness {
 }
 
 macro_rules! update_time {
-    ($shared_data:expr) => {
-        $shared_data.get_shared_data().is_time_updated = true;
+    ($is_time_updated:expr) => {
+        $is_time_updated = true;
         let mut servers = NTP_SERVERS.to_vec();
         servers.shuffle(&mut OsRng);
         let mut args = String::new();
@@ -199,20 +211,381 @@ macro_rules! update_time {
     };
 }
 
+macro_rules! write_bar {
+    ($self:expr) => {
+        let mut string = Vec::new();
+        $self.get_shared_data().fmt(&mut string).unwrap();
+        ($self.get_shared_data().callback)(string);
+    };
+}
+
+macro_rules! add_match {
+    ($bus:expr,$sender:expr) => {
+        $bus.add_match::<upower::OrgFreedesktopDBusPropertiesPropertiesChanged, _>(
+            MatchRule::new_signal("org.freedesktop.DBus.Properties", "PropertiesChanged")
+                .with_sender($sender),
+            |_, _, _| true,
+        )
+        .unwrap()
+    };
+    ($bus:expr,$sender:expr,$signal:expr) => {
+        $bus.add_match::<upower::OrgFreedesktopDBusPropertiesPropertiesChanged, _>(
+            MatchRule::new_signal($sender, $signal).with_sender($sender),
+            |_, _, _| true,
+        )
+        .unwrap()
+    };
+    ($bus:expr,$sender:expr,$interface:expr,$signal:expr) => {
+        $bus.add_match::<upower::OrgFreedesktopDBusPropertiesPropertiesChanged, _>(
+            MatchRule::new_signal($interface, $signal).with_sender($sender),
+            |_, _, _| true,
+        )
+        .unwrap()
+    };
+}
+
 pub trait GetSharedData<F: FnMut(Vec<u8>)> {
     fn get_shared_data(&mut self) -> &mut SharedData<F>;
 }
 
-pub struct SharedData<F: FnMut(Vec<u8>)> {
-    playing: PlaybackStatus,
-    song_metadata: (String, String),
+struct TimeBlock {
     now: OffsetDateTime,
     is_time_updated: bool,
+    handles: [RegistrationToken; 2],
+}
+
+impl TimeBlock {
+    fn new<F: FnMut(Vec<u8>), G: GetSharedData<F>>(handle: &LoopHandle<G>) -> Self {
+        let now_instant = Instant::now();
+        let now = time::OffsetDateTime::now_utc();
+        let timezone = tz::TimeZone::local().unwrap();
+        let time_offset = timezone.find_current_local_time_type().unwrap().ut_offset();
+        let now = now.to_offset(UtcOffset::from_whole_seconds(time_offset).unwrap());
+        let timer_start = now_instant + Duration::from_secs(60 - now.second() as u64);
+        // The only child process we spawn is ntpdate ever
+        let chld_handle = handle
+            .insert_source(
+                Signals::new(&[Signal::SIGCHLD]).unwrap(),
+                move |_, _, shared_data| unsafe {
+                    let now = time::OffsetDateTime::now_utc();
+                    let timezone = tz::TimeZone::local().unwrap();
+                    let time_offset = timezone.find_current_local_time_type().unwrap().ut_offset();
+                    shared_data
+                        .get_shared_data()
+                        .time
+                        .as_mut()
+                        .unwrap_unchecked()
+                        .now = now.to_offset(UtcOffset::from_whole_seconds(time_offset).unwrap());
+                    write_bar!(shared_data);
+                },
+            )
+            .unwrap();
+        let timer_handle = handle
+            .insert_source(
+                Timer::from_deadline(timer_start),
+                |_event, _metadata, shared_data| unsafe {
+                    shared_data
+                        .get_shared_data()
+                        .time
+                        .as_mut()
+                        .unwrap_unchecked()
+                        .now += time::Duration::minutes(1);
+                    write_bar!(shared_data);
+                    calloop::timer::TimeoutAction::ToDuration(Duration::from_secs(60))
+                },
+            )
+            .unwrap();
+
+        Self {
+            now,
+            is_time_updated: false,
+            handles: [chld_handle, timer_handle],
+        }
+    }
+
+    fn unregister<F: FnMut(Vec<u8>), G: GetSharedData<F>>(&self, handle: &LoopHandle<G>) {
+        for h in self.handles {
+            handle.remove(h);
+        }
+    }
+}
+
+struct PlaybackBlock {
+    playing: PlaybackStatus,
+    song_metadata: (String, String),
+    #[cfg(not(feature = "i3bar"))]
+    ping_handle: RegistrationToken,
+    match_token: dbus::channel::Token,
+}
+
+impl PlaybackBlock {
+    fn new<F: FnMut(Vec<u8>), G: GetSharedData<F>>(
+        user_connection: &calloop_dbus::SyncDBusSource<()>,
+        handle: &LoopHandle<G>,
+    ) -> Self {
+        use crate::mpris::OrgMprisMediaPlayer2Player;
+
+        let match_token = add_match!(user_connection, "org.mpris.MediaPlayer2.playerctld");
+
+        let player_proxy = user_connection.with_proxy(
+            "org.mpris.MediaPlayer2.playerctld",
+            "/org/mpris/MediaPlayer2",
+            Duration::from_secs(5),
+        );
+
+        let playing =
+            PlaybackStatus::from_str(&player_proxy.playback_status().unwrap_or_default()).unwrap();
+
+        let mut song_metadata = (String::new(), String::new());
+        if let Ok(metadata) = player_proxy.metadata() {
+            if let Some(title) = metadata.get("xesam:title") {
+                song_metadata.0 = title.as_str().unwrap().to_owned();
+            }
+            if let Some(artist) = metadata.get("xesam:artist") {
+                song_metadata.1 = artist
+                    .0
+                    .as_iter()
+                    .unwrap()
+                    .take(1)
+                    .map(|f| f.as_str().unwrap_or_default())
+                    .next()
+                    .unwrap()
+                    .to_owned();
+            }
+        }
+
+        #[cfg(not(feature = "i3bar"))]
+        let ping_handle = unsafe {
+            let (ping, ping_source) = calloop::ping::make_ping().unwrap();
+            PLAYPAUSE_PING.write(ping);
+
+            let user_conn: *const calloop_dbus::SyncDBusSource<()> = user_connection as *const _;
+
+            let proxy = (*user_conn).with_proxy(
+                "org.mpris.MediaPlayer2.playerctld",
+                "/org/mpris/MediaPlayer2",
+                Duration::from_secs(5),
+            );
+
+            handle
+                .insert_source(ping_source, move |_, _, _| {
+                    let _ = crate::mpris::OrgMprisMediaPlayer2Player::play_pause(&proxy);
+                })
+                .unwrap()
+        };
+
+        Self {
+            playing,
+            song_metadata,
+            ping_handle,
+            match_token,
+        }
+    }
+
+    fn unregister<F: FnMut(Vec<u8>), G: GetSharedData<F>>(
+        &self,
+        user_connection: &calloop_dbus::SyncDBusSource<()>,
+        handle: &LoopHandle<G>,
+    ) {
+        handle.remove(self.ping_handle);
+        user_connection.remove_match(self.match_token).unwrap();
+    }
+}
+
+struct ConnmanBlock {
     connected_service: String,
     online: ConnmanState,
+    match_token: dbus::channel::Token,
+}
+
+impl ConnmanBlock {
+    fn new(
+        system_connection: &calloop_dbus::SyncDBusSource<()>,
+        time_block: Option<&mut TimeBlock>,
+    ) -> Self {
+        let match_token = add_match!(
+            system_connection,
+            "net.connman",
+            "net.connman.Manager",
+            "PropertyChanged"
+        );
+
+        let connman_proxy =
+            system_connection.with_proxy("net.connman", "/", Duration::from_secs(5));
+
+        let online = ConnmanState::from_str(
+            connman_proxy
+                .get_properties()
+                .unwrap()
+                .get("State")
+                .unwrap()
+                .0
+                .as_str()
+                .unwrap_or_default(),
+        )
+        .unwrap();
+
+        if matches!(online, ConnmanState::Ready | ConnmanState::Online) {
+            if let Some(block) = time_block {
+                update_time!(block.is_time_updated);
+            }
+        }
+
+        let connected_service = connman_proxy
+            .get_services()
+            .unwrap()
+            .into_iter()
+            .find(|f| {
+                matches!(
+                    f.1.get("State").unwrap().0.as_str().unwrap(),
+                    "ready" | "online"
+                )
+            })
+            .map(|f| f.1.get("Name").unwrap().0.as_str().unwrap().to_owned())
+            .unwrap_or_default();
+
+        Self {
+            connected_service,
+            online,
+            match_token,
+        }
+    }
+
+    fn unregister(&self, system_connection: &calloop_dbus::SyncDBusSource<()>) {
+        system_connection.remove_match(self.match_token).unwrap();
+    }
+}
+
+struct BrightnessBlock {
     brightness: usize,
     max_brightness: f32,
+    handle: RegistrationToken,
+}
+
+impl BrightnessBlock {
+    fn new<F: FnMut(Vec<u8>), G: GetSharedData<F>>(handle: &LoopHandle<G>) -> Self {
+        let brightness_path = {
+            std::fs::read_dir("/sys/class/backlight")
+                .unwrap()
+                .next()
+                .map(|f| f.unwrap().path())
+        };
+
+        let mut max_brightness = 0.0;
+        let brightness: usize;
+        if let Some(ref brightness_path) = brightness_path {
+            max_brightness = std::fs::read_to_string(brightness_path.join("max_brightness"))
+                .unwrap()
+                .trim()
+                .parse::<usize>()
+                .unwrap() as f32;
+
+            let mut brightness_file =
+                std::fs::File::open(brightness_path.join("brightness")).unwrap();
+
+            let mut br_string = String::new();
+            brightness_file.read_to_string(&mut br_string).unwrap();
+            brightness =
+                ((br_string.trim().parse::<f32>().unwrap() / max_brightness) * 100.0) as usize;
+        } else {
+            brightness = 0;
+        }
+
+        let notify_instance = Inotify::init(InitFlags::empty()).unwrap();
+
+        if let Some(ref brightness) = brightness_path {
+            let _brightness_watch = notify_instance
+                .add_watch(brightness.as_path(), AddWatchFlags::IN_CLOSE_WRITE)
+                .unwrap();
+        }
+
+        let brightness_path = unsafe { brightness_path.unwrap_unchecked() };
+        let handle = handle
+            .insert_source(
+                Generic::new(notify_instance, Interest::BOTH, calloop::Mode::Level),
+                move |_, notify, data| unsafe {
+                    for _ in notify.read_events().unwrap() {
+                        let br_string =
+                            std::fs::read_to_string(brightness_path.join("brightness")).unwrap();
+                        data.get_shared_data()
+                            .brightness
+                            .as_mut()
+                            .unwrap_unchecked()
+                            .brightness = ((br_string.trim().parse::<f32>().unwrap()
+                            / data
+                                .get_shared_data()
+                                .brightness
+                                .as_mut()
+                                .unwrap_unchecked()
+                                .max_brightness)
+                            * 100.0) as _;
+
+                        write_bar!(data);
+                    }
+                    Ok(calloop::PostAction::Continue)
+                },
+            )
+            .unwrap();
+
+        Self {
+            brightness,
+            max_brightness,
+            handle,
+        }
+    }
+
+    fn unregister<F: FnMut(Vec<u8>), G: GetSharedData<F>>(&self, handle: &LoopHandle<G>) {
+        handle.remove(self.handle);
+    }
+}
+
+struct BatteryBlock {
     bat_devices: HashMap<dbus::Path<'static>, BatteryDevice>,
+    match_handles: [dbus::channel::Token; 3],
+}
+
+impl BatteryBlock {
+    fn new(system_connection: &calloop_dbus::SyncDBusSource<()>) -> Self {
+        let match_handles = [
+            add_match!(system_connection, "org.freedesktop.UPower"),
+            add_match!(system_connection, "org.freedesktop.UPower", "DeviceAdded"),
+            add_match!(system_connection, "org.freedesktop.UPower", "DeviceRemoved"),
+        ];
+
+        let upower_proxy = system_connection.with_proxy(
+            "org.freedesktop.UPower",
+            "/org/freedesktop/UPower",
+            Duration::from_secs(5),
+        );
+
+        let mut shared_data = HashMap::default();
+
+        for i in upower_proxy.enumerate_devices().unwrap() {
+            let proxy =
+                system_connection.with_proxy("org.freedesktop.UPower", i, Duration::from_secs(5));
+
+            BatteryDevice::insert(proxy, &mut shared_data);
+        }
+
+        Self {
+            bat_devices: shared_data,
+            match_handles,
+        }
+    }
+    fn unregister(&self, system_connection: &calloop_dbus::SyncDBusSource<()>) {
+        for t in self.match_handles {
+            system_connection.remove_match(t).unwrap();
+        }
+    }
+}
+
+pub struct SharedData<F: FnMut(Vec<u8>)> {
+    dconf: *mut DConfClient,
+    time: Option<TimeBlock>,
+    playback: Option<PlaybackBlock>,
+    connman: Option<ConnmanBlock>,
+    brightness: Option<BrightnessBlock>,
+    bat_block: Option<BatteryBlock>,
     signal: LoopSignal,
     callback: F,
 }
@@ -261,71 +634,405 @@ const NTP_SERVERS: [&str; 18] = [
 ];
 
 impl<F: FnMut(Vec<u8>)> SharedData<F> {
-    pub fn new(signal: LoopSignal, callback: F) -> Self {
-        let now = time::OffsetDateTime::now_utc();
-        let timezone = tz::TimeZone::local().unwrap();
-        let time_offset = timezone.find_current_local_time_type().unwrap().ut_offset();
-        let now = now.to_offset(UtcOffset::from_whole_seconds(time_offset).unwrap());
-        Self {
-            now,
-            is_time_updated: false,
-            playing: Default::default(),
-            song_metadata: Default::default(),
-            connected_service: Default::default(),
-            online: Default::default(),
-            brightness: 0,
-            max_brightness: 0.0,
-            bat_devices: Default::default(),
-            signal,
-            callback,
+    pub fn new<G: GetSharedData<F> + 'static>(
+        signal: LoopSignal,
+        callback: F,
+        handle: &LoopHandle<G>,
+    ) -> Self {
+        unsafe {
+            let loop_handle: LoopHandle<'static, G> = std::mem::transmute(handle.clone());
+
+            let (user_connection, _): (calloop_dbus::SyncDBusSource<()>, _) =
+                calloop_dbus::SyncDBusSource::new_session().unwrap();
+            let (system_connection, _): (calloop_dbus::SyncDBusSource<()>, _) =
+                calloop_dbus::SyncDBusSource::new_system().unwrap();
+
+            let user_connection_ptr = Box::into_raw(Box::new(user_connection));
+            let system_connection_ptr = Box::into_raw(Box::new(system_connection));
+
+            let user_connection: &'static mut SyncDBusSource<()> = &mut *user_connection_ptr;
+            let system_connection: &'static mut SyncDBusSource<()> = &mut *system_connection_ptr;
+
+            let dconf = unsafe { dconf_client_new() };
+            user_connection
+                .add_match::<upower::OrgFreedesktopDBusPropertiesPropertiesChanged, _>(
+                    MatchRule::new_signal("ca.desrt.dconf.Writer", "Notify"),
+                    |_, _, _| true,
+                )
+                .unwrap();
+            let mut time = None;
+            if dconf_read_variant(dconf, "/dotfiles/somebar/time-block").unwrap_or(true) {
+                time = Some(TimeBlock::new(handle))
+            }
+
+            let mut brightness = None;
+            if dconf_read_variant(dconf, "/dotfiles/somebar/brightness-block").unwrap_or(true) {
+                brightness = Some(BrightnessBlock::new(handle))
+            }
+
+            let mut battery = None;
+            if dconf_read_variant(dconf, "/dotfiles/somebar/battery-block").unwrap_or(true) {
+                battery = Some(BatteryBlock::new(system_connection))
+            }
+
+            let mut playback = None;
+            if dconf_read_variant(dconf, "/dotfiles/somebar/media-block").unwrap_or(true) {
+                playback = Some(PlaybackBlock::new(user_connection, handle))
+            }
+
+            let mut connman = None;
+            if dconf_read_variant(dconf, "/dotfiles/somebar/connman-block").unwrap_or(true) {
+                connman = Some(ConnmanBlock::new(system_connection, time.as_mut()))
+            }
+
+            handle
+                .insert_source(user_connection, move |event, user_con, shared_data| {
+                    let Some(member) = event.member() else {
+                    return None;
+                };
+                    if &*member == "PropertiesChanged" {
+                        if let Some(ref mut media) = shared_data.get_shared_data().playback {
+                            let property: mpris::OrgFreedesktopDBusPropertiesPropertiesChanged =
+                                event.read_all().unwrap();
+                            let mut changed = false;
+                            if let Some(metadata) = property.changed_properties.get("Metadata") {
+                                changed = true;
+                                let mut metadata = metadata.0.as_iter().unwrap();
+                                while let Some(data) = metadata.next() {
+                                    match data.as_str() {
+                                        Some("xesam:title") => {
+                                            media.song_metadata.0 = metadata
+                                                .next()
+                                                .unwrap()
+                                                .as_str()
+                                                .unwrap()
+                                                .to_owned();
+                                        }
+                                        Some("xesam:artist") => {
+                                            media.song_metadata.1 = metadata
+                                                .next()
+                                                .unwrap()
+                                                .as_iter()
+                                                .unwrap()
+                                                .next()
+                                                .unwrap()
+                                                .as_iter()
+                                                .unwrap()
+                                                .take(1)
+                                                .map(|f| f.as_str().unwrap_or_default())
+                                                .next()
+                                                .unwrap()
+                                                .to_owned();
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            if let Some(playback) =
+                                property.changed_properties.get("PlaybackStatus")
+                            {
+                                changed = true;
+                                media.playing =
+                                    PlaybackStatus::from_str(playback.as_str().unwrap()).unwrap();
+
+                                if media.playing == PlaybackStatus::Stopped {
+                                    media.song_metadata = Default::default();
+                                }
+                            }
+                            if changed {
+                                write_bar!(shared_data);
+                            }
+                        }
+                    } else if &*member == "Notify" {
+                        let property: dconf::CaDesrtDconfWriterNotify = event.read_all().unwrap();
+
+                        match property.prefix.as_str() {
+                            "/dotfiles/somebar/font" => {
+                                replaceFont();
+                                write_bar!(shared_data);
+                            }
+                            "/dotfiles/somebar/time-block" => {
+                                if dconf_read_variant(
+                                    shared_data.get_shared_data().dconf,
+                                    "/dotfiles/somebar/time-block",
+                                )
+                                .unwrap_or(true)
+                                {
+                                    shared_data.get_shared_data().time =
+                                        Some(TimeBlock::new(&loop_handle));
+                                } else {
+                                    if let Some(time) = shared_data.get_shared_data().time.take() {
+                                        time.unregister(&loop_handle);
+                                    }
+                                }
+                                write_bar!(shared_data);
+                            }
+                            "/dotfiles/somebar/brightness-block" => {
+                                if dconf_read_variant(
+                                    shared_data.get_shared_data().dconf,
+                                    "/dotfiles/somebar/brightness-block",
+                                )
+                                .unwrap_or(true)
+                                {
+                                    shared_data.get_shared_data().brightness =
+                                        Some(BrightnessBlock::new(&loop_handle));
+                                } else {
+                                    if let Some(brightness) =
+                                        shared_data.get_shared_data().brightness.take()
+                                    {
+                                        brightness.unregister(&loop_handle);
+                                    }
+                                }
+                                write_bar!(shared_data);
+                            }
+                            "/dotfiles/somebar/battery-block" => {
+                                if dconf_read_variant(
+                                    shared_data.get_shared_data().dconf,
+                                    "/dotfiles/somebar/battery-block",
+                                )
+                                .unwrap_or(true)
+                                {
+                                    shared_data.get_shared_data().bat_block =
+                                        Some(BatteryBlock::new(system_connection));
+                                } else {
+                                    if let Some(bat_block) =
+                                        shared_data.get_shared_data().bat_block.take()
+                                    {
+                                        bat_block.unregister(system_connection);
+                                    }
+                                }
+                                write_bar!(shared_data);
+                            }
+                            "/dotfiles/somebar/connman-block" => {
+                                if dconf_read_variant(
+                                    shared_data.get_shared_data().dconf,
+                                    "/dotfiles/somebar/connman-block",
+                                )
+                                .unwrap_or(true)
+                                {
+                                    shared_data.get_shared_data().connman =
+                                        Some(ConnmanBlock::new(
+                                            system_connection,
+                                            shared_data.get_shared_data().time.as_mut(),
+                                        ));
+                                } else {
+                                    if let Some(connman) =
+                                        shared_data.get_shared_data().connman.take()
+                                    {
+                                        connman.unregister(system_connection);
+                                    }
+                                }
+                                write_bar!(shared_data);
+                            }
+                            "/dotfiles/somebar/media-block" => {
+                                if dconf_read_variant(
+                                    shared_data.get_shared_data().dconf,
+                                    "/dotfiles/somebar/media-block",
+                                )
+                                .unwrap_or(true)
+                                {
+                                    shared_data.get_shared_data().playback =
+                                        Some(PlaybackBlock::new(user_con, &loop_handle));
+                                } else {
+                                    if let Some(media) =
+                                        shared_data.get_shared_data().playback.take()
+                                    {
+                                        media.unregister(user_con, &loop_handle);
+                                    }
+                                }
+                                write_bar!(shared_data);
+                            }
+                            _ => {}
+                        }
+                    }
+                    None
+                })
+                .unwrap();
+
+            let system_connection: &'static mut SyncDBusSource<()> = &mut *system_connection_ptr;
+
+            handle
+                .insert_source(system_connection, |event, dbus, shared_data| {
+                    let Some(member) = event.member() else {
+                    return None;
+                };
+                    if &*member == "PropertiesChanged" {
+                        if let Some(ref mut bat_block) = shared_data.get_shared_data().bat_block {
+                            let property: mpris::OrgFreedesktopDBusPropertiesPropertiesChanged =
+                                event.read_all().unwrap();
+                            if let Some(device) = bat_block
+                                .bat_devices
+                                .get_mut(&event.path().unwrap().into_static())
+                            {
+                                if let Some(percentage) =
+                                    property.changed_properties.get("Percentage")
+                                {
+                                    device.percentage = percentage.as_f64().unwrap().floor() as u32;
+                                }
+                                if let Some(state) = property.changed_properties.get("State") {
+                                    device.state =
+                                        BatteryState::from(state.as_u64().unwrap() as u32);
+                                    device.time = TimeTo::Unknown;
+                                }
+                                if let Some(time_to_empty) =
+                                    property.changed_properties.get("TimeToEmpty")
+                                {
+                                    let time_to_empty = time_to_empty.as_i64().unwrap();
+
+                                    if time_to_empty > 0 {
+                                        device.time = TimeTo::Empty(time_to_empty as f32);
+                                    }
+                                }
+                                if let Some(time_to_full) =
+                                    property.changed_properties.get("TimeToFull")
+                                {
+                                    let time_to_full = time_to_full.as_i64().unwrap();
+
+                                    if time_to_full > 0 {
+                                        device.time = TimeTo::Full(time_to_full as f32);
+                                    }
+                                }
+                                write_bar!(shared_data);
+                            }
+                        }
+                    } else if &*member == "PropertyChanged" {
+                        if let Some(ref mut connman) = shared_data.get_shared_data().connman {
+                            let property: connman::NetConnmanManagerPropertyChanged =
+                                event.read_all().unwrap();
+                            if property.name == "State" {
+                                let val = property.value.0.as_str().unwrap();
+                                connman.online = ConnmanState::from_str(val).unwrap();
+
+                                if matches!(
+                                    connman.online,
+                                    ConnmanState::Ready | ConnmanState::Online
+                                ) {
+                                    connman.connected_service = dbus
+                                        .with_proxy("net.connman", "/", Duration::from_secs(5))
+                                        .get_services()
+                                        .unwrap()
+                                        .into_iter()
+                                        .find(|f| {
+                                            matches!(
+                                                f.1.get("State").unwrap().0.as_str().unwrap(),
+                                                "ready" | "online"
+                                            )
+                                        })
+                                        .map(|f| {
+                                            f.1.get("Name").unwrap().0.as_str().unwrap().to_owned()
+                                        })
+                                        .unwrap_or_default();
+                                    if let Some(ref mut time) = shared_data.get_shared_data().time {
+                                        if !time.is_time_updated {
+                                            update_time!(time.is_time_updated);
+                                        }
+                                    }
+                                } else {
+                                    if let Some(ref mut time) = shared_data.get_shared_data().time {
+                                        time.is_time_updated = false;
+                                    }
+                                }
+
+                                write_bar!(shared_data);
+                            }
+                        }
+                    } else if &*member == "DeviceAdded" {
+                        if let Some(ref mut bat_block) = shared_data.get_shared_data().bat_block {
+                            let battery: upower::OrgFreedesktopUPowerDeviceAdded =
+                                event.read_all().unwrap();
+                            let proxy = dbus.with_proxy(
+                                "org.freedesktop.UPower",
+                                battery.device,
+                                Duration::from_secs(5),
+                            );
+                            BatteryDevice::insert(proxy, &mut bat_block.bat_devices);
+
+                            write_bar!(shared_data);
+                        }
+                    } else if &*member == "DeviceRemoved" {
+                        if let Some(ref mut bat_block) = shared_data.get_shared_data().bat_block {
+                            let battery: upower::OrgFreedesktopUPowerDeviceRemoved =
+                                event.read_all().unwrap();
+                            bat_block.bat_devices.remove(&battery.device);
+
+                            write_bar!(shared_data);
+                        }
+                    }
+                    None
+                })
+                .unwrap();
+
+            Self {
+                dconf,
+                time,
+                brightness,
+                bat_block: battery,
+                playback,
+                connman,
+                signal,
+                callback,
+            }
         }
     }
 }
 
 impl<F: FnMut(Vec<u8>)> SharedData<F> {
     fn fmt(&self, f: &mut Vec<u8>) -> std::io::Result<()> {
-        write!(f, "{}", match_clock!(self.now.hour()))?;
-        self.now.format_into(f, TIME_FMT.as_ref()).unwrap();
-        f.write_all(b" \xEE\x82\xB1 \xF3\xB0\x83\xB6 ")?;
-        self.now.format_into(f, DATE_FMT.as_ref()).unwrap();
-        f.write_all(b" \xEE\x82\xB1 ")?;
-
-        write!(
-            f,
-            "{}{}%  ",
-            match_brightness!(self.brightness),
-            self.brightness
-        )?;
-
-        for i in self.bat_devices.values() {
-            write!(
-                f,
-                "{}{}{}% ",
-                match_bat_type!(i),
-                match_battery!(i),
-                i.percentage
-            )?;
-            if i.state != BatteryState::Unknown {
-                write!(f, "{:?}{}", i.time, i.time)?;
-            }
-            f.write_all(b"\xEE\x82\xB1 ")?;
+        if let Some(ref time) = self.time {
+            write!(f, "{}", match_clock!(time.now.hour()))?;
+            time.now.format_into(f, TIME_FMT.as_ref()).unwrap();
+            f.write_all(b" \xEE\x82\xB1 ")?;
+            f.write_all(b"\xF3\xB0\x83\xB6 ").unwrap();
+            time.now.format_into(f, DATE_FMT.as_ref()).unwrap();
+            f.write_all(b" \xEE\x82\xB1 ")?;
         }
 
-        write!(
-            f,
-            "{}{}  {}",
-            self.online,
-            match self.online {
-                ConnmanState::Ready | ConnmanState::Online => &self.connected_service,
-                _ => "",
-            },
-            self.playing,
-        )?;
+        if let Some(ref brightness) = self.brightness {
+            write!(
+                f,
+                "{}{}%  ",
+                match_brightness!(brightness.brightness),
+                brightness.brightness
+            )?;
+        }
 
-        if self.playing != PlaybackStatus::Stopped {
-            f.write_all(self.song_metadata.0.as_bytes())?;
-            f.write_all(b" - ")?;
-            f.write_all(self.song_metadata.1.as_bytes())
+        if let Some(ref bat_block) = self.bat_block {
+            for i in bat_block.bat_devices.values() {
+                write!(
+                    f,
+                    "{}{}{}% ",
+                    match_bat_type!(i),
+                    match_battery!(i),
+                    i.percentage
+                )?;
+                if i.state != BatteryState::Unknown {
+                    write!(f, "{:?}{}", i.time, i.time)?;
+                }
+                f.write_all(b"\xEE\x82\xB1 ")?;
+            }
+        }
+
+        if let Some(ref connman) = self.connman {
+            write!(
+                f,
+                "{}{}  ",
+                connman.online,
+                match connman.online {
+                    ConnmanState::Ready | ConnmanState::Online => &connman.connected_service,
+                    _ => "",
+                },
+            )?;
+        }
+
+        if let Some(ref media) = self.playback {
+            if media.playing != PlaybackStatus::Stopped {
+                f.write_fmt(format_args!("{}", media.playing))?;
+                f.write_all(media.song_metadata.0.as_bytes())?;
+                f.write_all(b" - ")?;
+                f.write_all(media.song_metadata.1.as_bytes())
+            } else {
+                Ok(())
+            }
         } else {
             Ok(())
         }
@@ -334,49 +1041,62 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
 
 impl<F: FnMut(Vec<u8>)> SharedData<F> {
     fn fmt_table(&self, f: &mut BufWriter<UnixStream>) -> std::io::Result<()> {
-        write!(
-            f,
-            concat!("\n", include_str!("table.txt")),
-            match_clock!(self.now.hour()),
-        )?;
-        self.now.format_into(f, TIME_FMT.as_ref()).unwrap();
         f.write_all(b"\n")?;
-        write!(f, include_str!("table.txt"), "󰃶 ")?;
-        self.now.format_into(f, DATE_FMT.as_ref()).unwrap();
-        f.write_all(b"\n")?;
-        write!(
-            f,
-            concat!(include_str!("table.txt"), "{}%\n"),
-            match_brightness!(self.brightness),
-            self.brightness
-        )?;
-        for i in self.bat_devices.values() {
+        if let Some(ref time) = self.time {
+            write!(f, include_str!("table.txt"), match_clock!(time.now.hour()),)?;
+            time.now.format_into(f, TIME_FMT.as_ref()).unwrap();
+            f.write_all(b"\n")?;
+            write!(f, include_str!("table.txt"), "󰃶 ")?;
+            time.now.format_into(f, DATE_FMT.as_ref()).unwrap();
+            f.write_all(b"\n")?;
+        }
+
+        if let Some(ref brightness) = self.brightness {
             write!(
                 f,
                 concat!(include_str!("table.txt"), "{}%\n"),
-                match match_bat_type!(i) {
-                    "" => match_battery!(i),
-                    t => t,
-                },
-                i.percentage,
+                match_brightness!(brightness.brightness),
+                brightness.brightness
             )?;
-            if i.state != BatteryState::Unknown {
+        }
+
+        if let Some(ref bat_block) = self.bat_block {
+            for i in bat_block.bat_devices.values() {
                 write!(
                     f,
-                    concat!(include_str!("table.txt"), "{:?}\n"),
-                    i.time, i.time
+                    concat!(include_str!("table.txt"), "{}%\n"),
+                    match match_bat_type!(i) {
+                        "" => match_battery!(i),
+                        t => t,
+                    },
+                    i.percentage,
                 )?;
+                if i.state != BatteryState::Unknown {
+                    write!(
+                        f,
+                        concat!(include_str!("table.txt"), "{:?}\n"),
+                        i.time, i.time
+                    )?;
+                }
             }
         }
-        write!(
-            f,
-            concat!(include_str!("table.txt"), "{}\n"),
-            self.online, self.connected_service,
-        )?;
-        write!(f, include_str!("table.txt"), self.playing,)?;
-        f.write_all(self.song_metadata.0.as_bytes())?;
-        f.write_all(b" - ")?;
-        f.write_all(self.song_metadata.1.as_bytes())
+
+        if let Some(ref connman) = self.connman {
+            write!(
+                f,
+                concat!(include_str!("table.txt"), "{}\n"),
+                connman.online, connman.connected_service,
+            )?;
+        }
+
+        if let Some(ref media) = self.playback {
+            write!(f, include_str!("table.txt"), media.playing)?;
+            f.write_all(media.song_metadata.0.as_bytes())?;
+            f.write_all(b" - ")?;
+            f.write_all(media.song_metadata.1.as_bytes())
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -388,9 +1108,9 @@ struct BatteryDevice {
 }
 
 impl BatteryDevice {
-    fn insert<F: FnMut(Vec<u8>)>(
-        proxy: dbus::blocking::Proxy<&calloop_dbus::DBusSource<()>>,
-        shared_data: &mut SharedData<F>,
+    fn insert(
+        proxy: dbus::blocking::Proxy<&calloop_dbus::SyncDBusSource<()>>,
+        shared_data: &mut HashMap<dbus::Path<'static>, BatteryDevice>,
     ) {
         let bat_type = proxy.type_().unwrap();
         let bat_type = BatteryType::from(bat_type);
@@ -413,7 +1133,7 @@ impl BatteryDevice {
                 }
                 _ => unsafe { core::hint::unreachable_unchecked() },
             }
-            shared_data.bat_devices.insert(
+            shared_data.insert(
                 proxy.path.into_static(),
                 BatteryDevice {
                     percentage,
@@ -493,6 +1213,7 @@ impl Display for ConnmanState {
 
 #[cfg(not(feature = "i3bar"))]
 extern "C" {
+    fn replaceFont();
     fn onStatus(status: *const c_char);
     fn wl_display_dispatch_pending(display: *mut c_void) -> i32;
     fn wl_display_dispatch(display: *mut c_void) -> i32;
@@ -541,31 +1262,6 @@ impl Debug for TimeTo {
     }
 }
 
-macro_rules! add_match {
-    ($bus:expr,$sender:expr) => {
-        $bus.add_match::<upower::OrgFreedesktopDBusPropertiesPropertiesChanged, _>(
-            MatchRule::new_signal("org.freedesktop.DBus.Properties", "PropertiesChanged")
-                .with_sender($sender),
-            |_, _, _| true,
-        )
-        .unwrap()
-    };
-    ($bus:expr,$sender:expr,$signal:expr) => {
-        $bus.add_match::<upower::OrgFreedesktopDBusPropertiesPropertiesChanged, _>(
-            MatchRule::new_signal($sender, $signal).with_sender($sender),
-            |_, _, _| true,
-        )
-        .unwrap()
-    };
-    ($bus:expr,$sender:expr,$interface:expr,$signal:expr) => {
-        $bus.add_match::<upower::OrgFreedesktopDBusPropertiesPropertiesChanged, _>(
-            MatchRule::new_signal($interface, $signal).with_sender($sender),
-            |_, _, _| true,
-        )
-        .unwrap()
-    };
-}
-
 static mut PLAYPAUSE_PING: MaybeUninit<Ping> = MaybeUninit::uninit();
 
 #[no_mangle]
@@ -573,393 +1269,40 @@ pub unsafe extern "C" fn mpris_play_pause(_: *const c_void, _: *const c_void) {
     PLAYPAUSE_PING.assume_init_ref().ping();
 }
 
-macro_rules! write_bar {
-    ($self:expr) => {
-        let mut string = Vec::new();
-        $self.get_shared_data().fmt(&mut string).unwrap();
-        ($self.get_shared_data().callback)(string);
-    };
-}
-
 pub fn insert_into_loop<F: FnMut(Vec<u8>), G: GetSharedData<F>>(
     event_loop: &mut EventLoop<G>,
     shared_data: &mut G,
 ) {
-    let now = Instant::now();
-    let timer_start =
-        now + Duration::from_secs(60 - shared_data.get_shared_data().now.second() as u64);
-    let (user_connection, _): (calloop_dbus::DBusSource<()>, _) =
-        calloop_dbus::DBusSource::new_session().unwrap();
-    let (system_connection, _): (calloop_dbus::DBusSource<()>, _) =
-        calloop_dbus::DBusSource::new_system().unwrap();
-    add_match!(user_connection, "org.mpris.MediaPlayer2.playerctld");
-    add_match!(system_connection, "org.freedesktop.UPower");
-    add_match!(system_connection, "org.freedesktop.UPower", "DeviceAdded");
-    add_match!(system_connection, "org.freedesktop.UPower", "DeviceRemoved");
-    add_match!(
-        system_connection,
-        "net.connman",
-        "net.connman.Manager",
-        "PropertyChanged"
-    );
+    write_bar!(shared_data);
 
-    let brightness_path = {
-        std::fs::read_dir("/sys/class/backlight")
-            .unwrap()
-            .next()
-            .map(|f| f.unwrap().path())
-    };
+    let handle = event_loop.handle();
 
-    {
-        use crate::mpris::OrgMprisMediaPlayer2Player;
+    let socket_file = dirs::runtime_dir().unwrap().join("rustbar-0");
+    let _ = std::fs::remove_file(&socket_file);
+    let socket = UnixListener::bind(&socket_file).unwrap();
 
-        let upower_proxy = system_connection.with_proxy(
-            "org.freedesktop.UPower",
-            "/org/freedesktop/UPower",
-            Duration::from_secs(5),
-        );
-        let player_proxy = user_connection.with_proxy(
-            "org.mpris.MediaPlayer2.playerctld",
-            "/org/mpris/MediaPlayer2",
-            Duration::from_secs(5),
-        );
-        let connman_proxy =
-            system_connection.with_proxy("net.connman", "/", Duration::from_secs(5));
+    handle
+        .insert_source(
+            Generic::new(socket, Interest::READ, calloop::Mode::Level),
+            move |_event, socket, shared_data| {
+                let (file, _) = socket.accept().unwrap();
+                let mut file = BufWriter::new(file);
+                shared_data.get_shared_data().fmt_table(&mut file).unwrap();
 
-        shared_data.get_shared_data().playing =
-            PlaybackStatus::from_str(&player_proxy.playback_status().unwrap_or_default()).unwrap();
-
-        if let Ok(metadata) = player_proxy.metadata() {
-            if let Some(title) = metadata.get("xesam:title") {
-                shared_data.get_shared_data().song_metadata.0 = title.as_str().unwrap().to_owned();
-            }
-            if let Some(artist) = metadata.get("xesam:artist") {
-                shared_data.get_shared_data().song_metadata.1 = artist
-                    .0
-                    .as_iter()
-                    .unwrap()
-                    .take(1)
-                    .map(|f| f.as_str().unwrap_or_default())
-                    .next()
-                    .unwrap()
-                    .to_owned();
-            }
-        }
-
-        shared_data.get_shared_data().online = ConnmanState::from_str(
-            connman_proxy
-                .get_properties()
-                .unwrap()
-                .get("State")
-                .unwrap()
-                .0
-                .as_str()
-                .unwrap_or_default(),
+                Ok(calloop::PostAction::Continue)
+            },
         )
         .unwrap();
 
-        if matches!(
-            shared_data.get_shared_data().online,
-            ConnmanState::Ready | ConnmanState::Online
-        ) {
-            update_time!(shared_data);
-        }
-
-        shared_data.get_shared_data().connected_service = connman_proxy
-            .get_services()
-            .unwrap()
-            .into_iter()
-            .find(|f| {
-                matches!(
-                    f.1.get("State").unwrap().0.as_str().unwrap(),
-                    "ready" | "online"
-                )
-            })
-            .map(|f| f.1.get("Name").unwrap().0.as_str().unwrap().to_owned())
-            .unwrap_or_default();
-
-        for i in upower_proxy.enumerate_devices().unwrap() {
-            let proxy =
-                system_connection.with_proxy("org.freedesktop.UPower", i, Duration::from_secs(5));
-
-            BatteryDevice::insert(proxy, shared_data.get_shared_data());
-        }
-
-        if let Some(ref brightness) = brightness_path {
-            shared_data.get_shared_data().max_brightness =
-                std::fs::read_to_string(brightness.join("max_brightness"))
-                    .unwrap()
-                    .trim()
-                    .parse::<usize>()
-                    .unwrap() as f32;
-
-            let mut brightness = std::fs::File::open(brightness.join("brightness")).unwrap();
-
-            let mut br_string = String::new();
-            brightness.read_to_string(&mut br_string).unwrap();
-            shared_data.get_shared_data().brightness = ((br_string.trim().parse::<f32>().unwrap()
-                / shared_data.get_shared_data().max_brightness)
-                * 100.0) as _;
-        } else {
-            shared_data.get_shared_data().brightness = 0;
-        }
-
-        write_bar!(shared_data);
-    }
-
-    {
-        let handle = event_loop.handle();
-
-        let socket_file = dirs::runtime_dir().unwrap().join("rustbar-0");
-        let _ = std::fs::remove_file(&socket_file);
-        let socket = UnixListener::bind(&socket_file).unwrap();
-
-        handle
-            .insert_source(
-                Generic::new(socket, Interest::READ, calloop::Mode::Level),
-                move |_event, socket, shared_data| {
-                    let (file, _) = socket.accept().unwrap();
-                    let mut file = BufWriter::new(file);
-                    shared_data.get_shared_data().fmt_table(&mut file).unwrap();
-
-                    Ok(calloop::PostAction::Continue)
-                },
-            )
-            .unwrap();
-
-        let notify_instance = Inotify::init(InitFlags::empty()).unwrap();
-
-        let socket_watch = notify_instance
-            .add_watch(&socket_file, AddWatchFlags::IN_ALL_EVENTS)
-            .unwrap();
-
-        if let Some(ref brightness) = brightness_path {
-            let _brightness_watch = notify_instance
-                .add_watch(brightness.as_path(), AddWatchFlags::IN_CLOSE_WRITE)
-                .unwrap();
-        }
-
-        let brightness_path = unsafe { brightness_path.unwrap_unchecked() };
-        handle
-            .insert_source(
-                Generic::new(notify_instance, Interest::BOTH, calloop::Mode::Level),
-                move |_, notify, data| {
-                    for e in notify.read_events().unwrap() {
-                        if e.wd == socket_watch {
-                            data.get_shared_data().signal.stop();
-                        } else {
-                            let br_string =
-                                std::fs::read_to_string(brightness_path.join("brightness"))
-                                    .unwrap();
-                            data.get_shared_data().brightness =
-                                ((br_string.trim().parse::<f32>().unwrap()
-                                    / data.get_shared_data().max_brightness)
-                                    * 100.0) as _;
-
-                            write_bar!(data);
-                        }
-                    }
-                    Ok(calloop::PostAction::Continue)
-                },
-            )
-            .unwrap();
-
-        handle
-            .insert_source(
-                Signals::new(&[Signal::SIGINT, Signal::SIGTERM]).unwrap(),
-                move |_, _, data| {
-                    std::fs::remove_file(&socket_file).unwrap();
-                    data.get_shared_data().signal.stop();
-                },
-            )
-            .unwrap();
-        // The only child process we spawn is ntpdate ever
-        handle
-            .insert_source(
-                Signals::new(&[Signal::SIGCHLD]).unwrap(),
-                move |_, _, shared_data| {
-                    let now = time::OffsetDateTime::now_utc();
-                    let timezone = tz::TimeZone::local().unwrap();
-                    let time_offset = timezone.find_current_local_time_type().unwrap().ut_offset();
-                    shared_data.get_shared_data().now =
-                        now.to_offset(UtcOffset::from_whole_seconds(time_offset).unwrap());
-                    write_bar!(shared_data);
-                },
-            )
-            .unwrap();
-        handle
-            .insert_source(
-                Timer::from_deadline(timer_start),
-                |_event, _metadata, shared_data| {
-                    shared_data.get_shared_data().now += time::Duration::minutes(1);
-                    write_bar!(shared_data);
-                    calloop::timer::TimeoutAction::ToDuration(Duration::from_secs(60))
-                },
-            )
-            .unwrap();
-        #[cfg(not(feature = "i3bar"))]
-        unsafe {
-            let (ping, ping_source) = calloop::ping::make_ping().unwrap();
-            PLAYPAUSE_PING.write(ping);
-
-            let user_conn: *const calloop_dbus::DBusSource<()> = &user_connection as *const _;
-
-            let proxy = (*user_conn).with_proxy(
-                "org.mpris.MediaPlayer2.playerctld",
-                "/org/mpris/MediaPlayer2",
-                Duration::from_secs(5),
-            );
-
-            handle
-                .insert_source(ping_source, move |_, _, _| {
-                    let _ = crate::mpris::OrgMprisMediaPlayer2Player::play_pause(&proxy);
-                })
-                .unwrap();
-        }
-        handle
-            .insert_source(user_connection, |event, _metadata, shared_data| {
-                let Some(member) = event.member() else {
-                    return None;
-                };
-                if &*member == "PropertiesChanged" {
-                    let property: mpris::OrgFreedesktopDBusPropertiesPropertiesChanged =
-                        event.read_all().unwrap();
-                    if let Some(metadata) = property.changed_properties.get("Metadata") {
-                        let mut metadata = metadata.0.as_iter().unwrap();
-                        while let Some(data) = metadata.next() {
-                            match data.as_str() {
-                                Some("xesam:title") => {
-                                    shared_data.get_shared_data().song_metadata.0 =
-                                        metadata.next().unwrap().as_str().unwrap().to_owned();
-                                }
-                                Some("xesam:artist") => {
-                                    shared_data.get_shared_data().song_metadata.1 = metadata
-                                        .next()
-                                        .unwrap()
-                                        .as_iter()
-                                        .unwrap()
-                                        .next()
-                                        .unwrap()
-                                        .as_iter()
-                                        .unwrap()
-                                        .take(1)
-                                        .map(|f| f.as_str().unwrap_or_default())
-                                        .next()
-                                        .unwrap()
-                                        .to_owned();
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    if let Some(playback) = property.changed_properties.get("PlaybackStatus") {
-                        shared_data.get_shared_data().playing =
-                            PlaybackStatus::from_str(playback.as_str().unwrap()).unwrap();
-
-                        if shared_data.get_shared_data().playing == PlaybackStatus::Stopped {
-                            shared_data.get_shared_data().song_metadata = Default::default();
-                        }
-                    }
-                    write_bar!(shared_data);
-                }
-                None
-            })
-            .unwrap();
-        handle
-            .insert_source(system_connection, |event, dbus, shared_data| {
-                let Some(member) = event.member() else {
-                    return None;
-                };
-                if &*member == "PropertiesChanged" {
-                    let property: mpris::OrgFreedesktopDBusPropertiesPropertiesChanged =
-                        event.read_all().unwrap();
-                    if let Some(device) = shared_data
-                        .get_shared_data()
-                        .bat_devices
-                        .get_mut(&event.path().unwrap().into_static())
-                    {
-                        if let Some(percentage) = property.changed_properties.get("Percentage") {
-                            device.percentage = percentage.as_f64().unwrap().floor() as u32;
-                        }
-                        if let Some(state) = property.changed_properties.get("State") {
-                            device.state = BatteryState::from(state.as_u64().unwrap() as u32);
-                            device.time = TimeTo::Unknown;
-                        }
-                        if let Some(time_to_empty) = property.changed_properties.get("TimeToEmpty")
-                        {
-                            let time_to_empty = time_to_empty.as_i64().unwrap();
-
-                            if time_to_empty > 0 {
-                                device.time = TimeTo::Empty(time_to_empty as f32);
-                            }
-                        }
-                        if let Some(time_to_full) = property.changed_properties.get("TimeToFull") {
-                            let time_to_full = time_to_full.as_i64().unwrap();
-
-                            if time_to_full > 0 {
-                                device.time = TimeTo::Full(time_to_full as f32);
-                            }
-                        }
-                        write_bar!(shared_data);
-                    }
-                } else if &*member == "PropertyChanged" {
-                    let property: connman::NetConnmanManagerPropertyChanged =
-                        event.read_all().unwrap();
-                    if property.name == "State" {
-                        let val = property.value.0.as_str().unwrap();
-                        shared_data.get_shared_data().online = ConnmanState::from_str(val).unwrap();
-
-                        if matches!(
-                            shared_data.get_shared_data().online,
-                            ConnmanState::Ready | ConnmanState::Online
-                        ) {
-                            shared_data.get_shared_data().connected_service = dbus
-                                .with_proxy("net.connman", "/", Duration::from_secs(5))
-                                .get_services()
-                                .unwrap()
-                                .into_iter()
-                                .find(|f| {
-                                    matches!(
-                                        f.1.get("State").unwrap().0.as_str().unwrap(),
-                                        "ready" | "online"
-                                    )
-                                })
-                                .map(|f| f.1.get("Name").unwrap().0.as_str().unwrap().to_owned())
-                                .unwrap_or_default();
-                            if !shared_data.get_shared_data().is_time_updated {
-                                update_time!(shared_data);
-                            }
-                        } else {
-                            shared_data.get_shared_data().is_time_updated = false;
-                        }
-
-                        write_bar!(shared_data);
-                    }
-                } else if &*member == "DeviceAdded" {
-                    let battery: upower::OrgFreedesktopUPowerDeviceAdded =
-                        event.read_all().unwrap();
-                    let proxy = dbus.with_proxy(
-                        "org.freedesktop.UPower",
-                        battery.device,
-                        Duration::from_secs(5),
-                    );
-                    BatteryDevice::insert(proxy, shared_data.get_shared_data());
-
-                    write_bar!(shared_data);
-                } else if &*member == "DeviceRemoved" {
-                    let battery: upower::OrgFreedesktopUPowerDeviceRemoved =
-                        event.read_all().unwrap();
-                    shared_data
-                        .get_shared_data()
-                        .bat_devices
-                        .remove(&battery.device);
-
-                    write_bar!(shared_data);
-                }
-                None
-            })
-            .unwrap();
-    }
+    handle
+        .insert_source(
+            Signals::new(&[Signal::SIGINT, Signal::SIGTERM]).unwrap(),
+            move |_, _, data| {
+                std::fs::remove_file(&socket_file).unwrap();
+                data.get_shared_data().signal.stop();
+            },
+        )
+        .unwrap();
 }
 
 pub struct SharedDataTransparent<F: FnMut(Vec<u8>)>(pub SharedData<F>);
@@ -974,11 +1317,14 @@ impl<F: FnMut(Vec<u8>)> GetSharedData<F> for SharedDataTransparent<F> {
 #[cfg(not(feature = "i3bar"))]
 pub extern "C" fn init() {
     let mut event_loop: EventLoop<_> = EventLoop::try_new().unwrap();
-    let mut shared_data =
-        SharedDataTransparent(SharedData::new(event_loop.get_signal(), |string| unsafe {
+    let mut shared_data = SharedDataTransparent(SharedData::new(
+        event_loop.get_signal(),
+        |string| unsafe {
             let string = CString::from_vec_unchecked(string);
             onStatus(string.as_ptr());
-        }));
+        },
+        &event_loop.handle(),
+    ));
     let handle = event_loop.handle();
     insert_into_loop(&mut event_loop, &mut shared_data);
 
@@ -1000,4 +1346,16 @@ pub extern "C" fn init() {
             wl_display_flush(display);
         })
         .unwrap();
+}
+
+fn dconf_read_variant<T: FromVariant>(dconf_client: *mut DConfClient, path: &str) -> Option<T> {
+    let value: Option<glib::variant::Variant> = {
+        let key = CString::new(path).unwrap();
+
+        unsafe {
+            NonNull::new(dconf_client_read(dconf_client, key.as_ptr()))
+                .map(|nn| std::mem::transmute(nn))
+        }
+    };
+    value.and_then(|v| v.get())
 }

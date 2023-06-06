@@ -1,14 +1,17 @@
 // somebar - dwl barbar
 // See LICENSE file for copyright and license details.
 
+#include <cstdlib>
 #include <wayland-client-protocol.h>
 #include <pango/pangocairo.h>
+#include <iostream>
 #include "bar.hpp"
 #include "cairo.h"
 #include "config.hpp"
 #include "pango/pango-font.h"
 #include "pango/pango-fontmap.h"
 #include "pango/pango-layout.h"
+#include "src/common.hpp"
 
 const zwlr_layer_surface_v1_listener Bar::_layerSurfaceListener = {
 	[](void* owner, zwlr_layer_surface_v1*, uint32_t serial, uint32_t width, uint32_t height)
@@ -28,13 +31,18 @@ struct Font {
 	PangoFontDescription* description;
 	int height {0};
 };
+
 static Font getFont()
 {
+	Glib::RefPtr<Gio::Settings> fontSetting = Gio::Settings::create("dotfiles.somebar");
+	Glib::ustring tempKey = "font";
+	font = fontSetting->get_string(tempKey);
+	std::cout<<font<<std::endl;
 	auto fontMap = pango_cairo_font_map_get_default();
 	if (!fontMap) {
 		die("pango_cairo_font_map_get_default");
 	}
-	auto fontDesc = pango_font_description_from_string(font);
+	auto fontDesc = pango_font_description_from_string(font.c_str());
 	if (!fontDesc) {
 		die("pango_font_description_from_string");
 	}
@@ -61,6 +69,10 @@ static Font getFont()
 	return res;
 }
 static Font barfont = getFont();
+
+extern "C" void replaceFont() {
+	barfont = getFont();
+}
 
 BarComponent::BarComponent() { }
 BarComponent::BarComponent(wl_unique_ptr<PangoLayout> layout)
@@ -206,6 +218,7 @@ void Bar::layerSurfaceConfigure(uint32_t serial, uint32_t width, uint32_t height
 	_bufs.emplace(width, height, WL_SHM_FORMAT_XRGB8888);
 	render();
 }
+
 
 void Bar::render()
 {

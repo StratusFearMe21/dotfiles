@@ -10,6 +10,7 @@
 #include "common.hpp"
 #include "shm_buffer.hpp"
 
+
 class BarComponent {
 	std::unique_ptr<std::string> _text;
 public:
@@ -27,6 +28,7 @@ struct Tag {
 	int focusedClient;
 	BarComponent component;
 };
+
 
 struct Monitor;
 class Bar {

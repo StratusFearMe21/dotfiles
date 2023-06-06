@@ -1,0 +1,16 @@
+Get fd
+Watch {
+    fd: 57,
+    read: true,
+    write: false,
+}
+Process dbus
+Process dbus
+Process dbus
+Fd added
+Dbus watch func
+/dotfiles/dwl/disable-trackpad-while-typing
+Dbus watch func
+/dotfiles/dwl/disable-trackpad-while-typing
+Dbus watch func
+/ca/desrt/dconf-editor/

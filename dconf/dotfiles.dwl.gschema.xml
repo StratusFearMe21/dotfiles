@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+    <enum id="dotfiles.dwl.ScrollMethod">
+      <value nick="No Scroll" value="0" />
+      <value nick="Two Finger" value="1" />
+      <value nick="Edge" value="2" />
+      <value nick="On Button Down" value="4" />
+    </enum>
+
+    <enum id="dotfiles.dwl.ClickMethod">
+      <value nick="None" value="0" />
+      <value nick="Button Areas" value="1" />
+      <value nick="Click Finger" value="2" />
+    </enum>
+
+    <enum id="dotfiles.dwl.SendEventsMode">
+      <value nick="Enabled" value="0" />
+      <value nick="Disabled" value="1" />
+      <value nick="Disabled on External Mouse" value="2" />
+    </enum>
+
+    <enum id="dotfiles.dwl.AccelProfile">
+      <value nick="None" value="0" />
+      <value nick="Flat" value="1" />
+      <value nick="Adaptive" value="2" />
+    </enum>
+
+    <enum id="dotfiles.dwl.ButtonMap">
+      <value nick="LRM" value="0" />
+      <value nick="LMR" value="1" />
+    </enum>
+
+    <enum id="dotfiles.dwl.Modifier">
+      <value nick="Shift" value="1" />
+      <value nick="Caps" value="2" />
+      <value nick="Ctrl" value="4" />
+      <value nick="Alt" value="8" />
+      <value nick="Mod2" value="16" />
+      <value nick="Mod3" value="32" />
+      <value nick="Logo" value="64" />
+      <value nick="Mod5" value="128" />
+    </enum>
+    
+    <schema id="dotfiles.dwl" path="/dotfiles/dwl/">
+      <key name="sloppy-focus" type="b">
+        <default>true</default>
+        <summary>focus follows mouse</summary>
+        <description>
+          If true, focus follows mouse. If false, you need to click on a window
+          for it to gain focus.
+        </description>
+      </key>
+      <key name="bypass-surface-visibility" type="b">
+        <default>false</default>
+        <summary>Disable idle tracking</summary>
+        <description>
+          true means idle inhibitors will disable idle tracking even if it's surface
+          isn't visible
+        </description>
+      </key>
+      <key name="border-px" type="i">
+        <default>1</default>
+        <summary>border pixel of windows</summary>
+        <description>
+          Thickness of the border placed around windows
+        </description>
+      </key>
+      <key name="border-color" type="(dddd)">
+        <default>(0.337,0.357,0.078,1.0)</default>
+      </key>
+      <key name="focus-color" type="(dddd)">
+        <default>(0.918,0.424,0.451,1.0)</default>
+      </key>
+      <key name="fullscreen-bg" type="(dddd)">
+        <default>(0.1,0.1,0.1,1.0)</default>
+      </key>
+      <key name="tag-count" type="i">
+        <range min="1" max="31" />
+        <default>9</default>
+      </key>
+      <key name="xkb-options" type="s">
+        <default>"caps:swapescape,compose:ralt"</default>
+      </key>
+      <key name="repeat-rate" type="i">
+        <default>25</default>
+      </key>
+      <key name="repeat-delay" type="i">
+        <default>600</default>
+      </key>
+      <key name="tap-to-click" type="b">
+        <default>true</default>
+      </key>
+      <key name="tap-to-drag" type="b">
+        <default>true</default>
+      </key>
+      <key name="drag-lock" type="b">
+        <default>true</default>
+      </key>
+      <key name="natural-scrolling" type="b">
+        <default>false</default>
+      </key>
+      <key name="disable-trackpad-while-typing" type="b">
+        <default>true</default>
+      </key>
+      <key name="left-handed" type="b">
+        <default>false</default>
+      </key>
+      <key name="middle-button-emulation" type="b">
+        <default>true</default>
+      </key>
+      <key name="scroll-method" enum="dotfiles.dwl.ScrollMethod">
+        <default>'Two Finger'</default>
+      </key>
+      <key name="click-method" enum="dotfiles.dwl.ClickMethod">
+        <default>'Button Areas'</default>
+      </key>
+      <key name="send-events-mode" enum="dotfiles.dwl.SendEventsMode">
+        <default>'Enabled'</default>
+      </key>
+      <key name="accel-profile" enum="dotfiles.dwl.AccelProfile">
+        <default>'Adaptive'</default>
+      </key>
+      <key name="accel-speed" type="d">
+        <default>0.0</default>
+      </key>
+      <key name="button-map" enum="dotfiles.dwl.ButtonMap">
+        <default>'LRM'</default>
+      </key>
+      <key name="modkey" enum="dotfiles.dwl.Modifier">
+        <default>'Logo'</default>
+      </key>
+    </schema>
+</schemalist>

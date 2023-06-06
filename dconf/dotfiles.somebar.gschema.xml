@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+    <schema id="dotfiles.somebar" path="/dotfiles/somebar/">
+      <key name="font" type="s">
+        <default>"FiraCode Nerd Font 10"</default>
+        <summary>Status bar font</summary>
+        <description>
+          The font that the status bar will use. Should be monospace and a Nerd font
+        </description>
+      </key>
+      <key name="time-block" type="b">
+        <default>true</default>
+        <summary>Show the current system time and date in the status bar</summary>
+        <description>
+          Show the current system time and date in the status bar, This block will
+          no be updated longer appear in the status bar if set to false
+        </description>
+      </key>
+      <key name="brightness-block" type="b">
+        <default>true</default>
+        <summary>Show the current brightness in the status bar</summary>
+        <description>
+          Show the current backlight brightness in the status bar, This block will
+          no be updated or appear in the status bar if set to false
+        </description>
+      </key>
+      <key name="battery-block" type="b">
+        <default>true</default>
+        <summary>Show the current battery level in the status bar</summary>
+        <description>
+          Show the current battery level in the status bar, This block will
+          no be updated or appear in the status bar if set to false
+        </description>
+      </key>
+      <key name="connman-block" type="b">
+        <default>true</default>
+        <summary>Show the current WiFi connection in the status bar</summary>
+        <description>
+          Show the current WiFi connection in the status bar, This block will
+          no be updated or appear in the status bar if set to false
+        </description>
+      </key>
+      <key name="media-block" type="b">
+        <default>true</default>
+        <summary>Show the currently playing media in the status bar</summary>
+        <description>
+          Show the currently playing media in the status bar, This block will
+          no be updated or appear in the status bar if set to false
+        </description>
+      </key>
+    </schema>
+</schemalist>

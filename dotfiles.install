@@ -11,7 +11,7 @@ post_install() {
 		usermod -aG wheel $DOTFILES_USER
 		chsh $DOTFILES_USER -s /bin/dash
 		ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
-		hwclock --systohc
+		hwclock -w
 		sed -i "s/#en_US.UTF-8/en_US.UTF-8/g" /etc/locale.gen
 		locale-gen
 		echo 'export LANG="en_US.UTF-8"' > /etc/locale.conf
@@ -28,5 +28,5 @@ post_install() {
 }
 
 post_upgrade() {
-	s6-db-reload-user
+	post_install
 }

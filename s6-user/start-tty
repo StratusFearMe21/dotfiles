@@ -1,0 +1,4 @@
+#!/bin/execlineb -S0
+importas -i USER USER
+foreground { s6-rc-init -c /etc/s6-user/rc/compiled -l /tmp/${USER}/s6-rc /tmp/${USER}/service }
+exec s6-rc -l /tmp/${USER}/s6-rc -up change tty
