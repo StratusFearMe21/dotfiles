@@ -653,7 +653,7 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
             let user_connection: &'static mut SyncDBusSource<()> = &mut *user_connection_ptr;
             let system_connection: &'static mut SyncDBusSource<()> = &mut *system_connection_ptr;
 
-            let dconf = unsafe { dconf_client_new() };
+            let dconf = dconf_client_new();
             user_connection
                 .add_match::<upower::OrgFreedesktopDBusPropertiesPropertiesChanged, _>(
                     MatchRule::new_signal("ca.desrt.dconf.Writer", "Notify"),
@@ -746,103 +746,109 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
                     } else if &*member == "Notify" {
                         let property: dconf::CaDesrtDconfWriterNotify = event.read_all().unwrap();
 
-                        match property.prefix.as_str() {
-                            "/dotfiles/somebar/font" => {
-                                replaceFont();
-                                write_bar!(shared_data);
-                            }
-                            "/dotfiles/somebar/time-block" => {
-                                if dconf_read_variant(
-                                    shared_data.get_shared_data().dconf,
-                                    "/dotfiles/somebar/time-block",
-                                )
-                                .unwrap_or(true)
-                                {
-                                    shared_data.get_shared_data().time =
-                                        Some(TimeBlock::new(&loop_handle));
-                                } else {
-                                    if let Some(time) = shared_data.get_shared_data().time.take() {
-                                        time.unregister(&loop_handle);
-                                    }
+                        for p in property.changes {
+                            let mut new_prop = property.prefix.clone();
+                            new_prop.push_str(&p);
+                            match new_prop.as_str() {
+                                "/dotfiles/somebar/font" => {
+                                    replaceFont();
+                                    write_bar!(shared_data);
                                 }
-                                write_bar!(shared_data);
-                            }
-                            "/dotfiles/somebar/brightness-block" => {
-                                if dconf_read_variant(
-                                    shared_data.get_shared_data().dconf,
-                                    "/dotfiles/somebar/brightness-block",
-                                )
-                                .unwrap_or(true)
-                                {
-                                    shared_data.get_shared_data().brightness =
-                                        Some(BrightnessBlock::new(&loop_handle));
-                                } else {
-                                    if let Some(brightness) =
-                                        shared_data.get_shared_data().brightness.take()
+                                "/dotfiles/somebar/time-block" => {
+                                    if dconf_read_variant(
+                                        shared_data.get_shared_data().dconf,
+                                        "/dotfiles/somebar/time-block",
+                                    )
+                                    .unwrap_or(true)
                                     {
-                                        brightness.unregister(&loop_handle);
+                                        shared_data.get_shared_data().time =
+                                            Some(TimeBlock::new(&loop_handle));
+                                    } else {
+                                        if let Some(time) =
+                                            shared_data.get_shared_data().time.take()
+                                        {
+                                            time.unregister(&loop_handle);
+                                        }
                                     }
+                                    write_bar!(shared_data);
                                 }
-                                write_bar!(shared_data);
-                            }
-                            "/dotfiles/somebar/battery-block" => {
-                                if dconf_read_variant(
-                                    shared_data.get_shared_data().dconf,
-                                    "/dotfiles/somebar/battery-block",
-                                )
-                                .unwrap_or(true)
-                                {
-                                    shared_data.get_shared_data().bat_block =
-                                        Some(BatteryBlock::new(system_connection));
-                                } else {
-                                    if let Some(bat_block) =
-                                        shared_data.get_shared_data().bat_block.take()
+                                "/dotfiles/somebar/brightness-block" => {
+                                    if dconf_read_variant(
+                                        shared_data.get_shared_data().dconf,
+                                        "/dotfiles/somebar/brightness-block",
+                                    )
+                                    .unwrap_or(true)
                                     {
-                                        bat_block.unregister(system_connection);
+                                        shared_data.get_shared_data().brightness =
+                                            Some(BrightnessBlock::new(&loop_handle));
+                                    } else {
+                                        if let Some(brightness) =
+                                            shared_data.get_shared_data().brightness.take()
+                                        {
+                                            brightness.unregister(&loop_handle);
+                                        }
                                     }
+                                    write_bar!(shared_data);
                                 }
-                                write_bar!(shared_data);
-                            }
-                            "/dotfiles/somebar/connman-block" => {
-                                if dconf_read_variant(
-                                    shared_data.get_shared_data().dconf,
-                                    "/dotfiles/somebar/connman-block",
-                                )
-                                .unwrap_or(true)
-                                {
-                                    shared_data.get_shared_data().connman =
-                                        Some(ConnmanBlock::new(
-                                            system_connection,
-                                            shared_data.get_shared_data().time.as_mut(),
-                                        ));
-                                } else {
-                                    if let Some(connman) =
-                                        shared_data.get_shared_data().connman.take()
+                                "/dotfiles/somebar/battery-block" => {
+                                    if dconf_read_variant(
+                                        shared_data.get_shared_data().dconf,
+                                        "/dotfiles/somebar/battery-block",
+                                    )
+                                    .unwrap_or(true)
                                     {
-                                        connman.unregister(system_connection);
+                                        shared_data.get_shared_data().bat_block =
+                                            Some(BatteryBlock::new(system_connection));
+                                    } else {
+                                        if let Some(bat_block) =
+                                            shared_data.get_shared_data().bat_block.take()
+                                        {
+                                            bat_block.unregister(system_connection);
+                                        }
                                     }
+                                    write_bar!(shared_data);
                                 }
-                                write_bar!(shared_data);
-                            }
-                            "/dotfiles/somebar/media-block" => {
-                                if dconf_read_variant(
-                                    shared_data.get_shared_data().dconf,
-                                    "/dotfiles/somebar/media-block",
-                                )
-                                .unwrap_or(true)
-                                {
-                                    shared_data.get_shared_data().playback =
-                                        Some(PlaybackBlock::new(user_con, &loop_handle));
-                                } else {
-                                    if let Some(media) =
-                                        shared_data.get_shared_data().playback.take()
+                                "/dotfiles/somebar/connman-block" => {
+                                    if dconf_read_variant(
+                                        shared_data.get_shared_data().dconf,
+                                        "/dotfiles/somebar/connman-block",
+                                    )
+                                    .unwrap_or(true)
                                     {
-                                        media.unregister(user_con, &loop_handle);
+                                        shared_data.get_shared_data().connman =
+                                            Some(ConnmanBlock::new(
+                                                system_connection,
+                                                shared_data.get_shared_data().time.as_mut(),
+                                            ));
+                                    } else {
+                                        if let Some(connman) =
+                                            shared_data.get_shared_data().connman.take()
+                                        {
+                                            connman.unregister(system_connection);
+                                        }
                                     }
+                                    write_bar!(shared_data);
                                 }
-                                write_bar!(shared_data);
+                                "/dotfiles/somebar/media-block" => {
+                                    if dconf_read_variant(
+                                        shared_data.get_shared_data().dconf,
+                                        "/dotfiles/somebar/media-block",
+                                    )
+                                    .unwrap_or(true)
+                                    {
+                                        shared_data.get_shared_data().playback =
+                                            Some(PlaybackBlock::new(user_con, &loop_handle));
+                                    } else {
+                                        if let Some(media) =
+                                            shared_data.get_shared_data().playback.take()
+                                        {
+                                            media.unregister(user_con, &loop_handle);
+                                        }
+                                    }
+                                    write_bar!(shared_data);
+                                }
+                                _ => {}
                             }
-                            _ => {}
                         }
                     }
                     None

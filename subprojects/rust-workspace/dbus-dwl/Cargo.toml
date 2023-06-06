@@ -10,3 +10,7 @@ crate-type = ["staticlib"]
 
 [dependencies]
 dbus = "0.9.7"
+fst = "0.4.7"
+
+[build-dependencies]
+fst = "0.4.7"

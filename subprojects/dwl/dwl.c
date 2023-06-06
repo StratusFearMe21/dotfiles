@@ -1,3 +1,4 @@
+//
 /*
  * See LICENSE file for copyright and license details.
  */
@@ -20,6 +21,7 @@
 #include <wayland-server-core.h>
 #include <dconf/client/dconf-client.h>
 #include <dbus/dbus.h>
+#include <wayland-util.h>
 #include <wlr/backend.h>
 #include <wlr/backend/libinput.h>
 #include <wlr/render/allocator.h>
@@ -87,6 +89,32 @@
 enum { CurNormal, CurPressed, CurMove, CurResize }; /* cursor */
 enum { XDGShell, LayerShell, X11Managed, X11Unmanaged }; /* client types */
 enum { LyrBg, LyrBottom, LyrTop, LyrOverlay, LyrTile, LyrFloat, LyrFS, LyrDragIcon, LyrBlock, NUM_LAYERS }; /* scene layers */
+enum {
+	AccelProfile = 0,
+	AccelSpeed = 1,
+	BorderColor = 2,
+	BorderPx = 3,
+	ButtonMap = 4,
+	BypassSurfaceVisibility = 5,
+	ClickMethod = 6, 
+	DisableTrackpadWhileTyping = 7,
+	DragLock = 8,
+	FocusColor = 9,
+	FullscreenBg = 10,
+	LeftHanded = 11,
+	MiddleButtonEmulation = 12,
+	Modkey = 13,
+	NaturalScrolling = 14,
+	RepeatDelay = 15,
+	RepeatRate = 16,
+	ScrollMethod = 17,
+	SendEventsMode = 18,
+	SloppyFocus = 19,
+	TagCount = 20,
+	TapToClick = 21,
+	TapToDrag = 22,
+	XkbOptions = 23,
+};
 #ifdef XWAYLAND
 enum { NetWMWindowTypeDialog, NetWMWindowTypeSplash, NetWMWindowTypeToolbar,
 	NetWMWindowTypeUtility, NetLast }; /* EWMH atoms */
@@ -174,6 +202,12 @@ typedef struct {
 	struct wl_listener key;
 	struct wl_listener destroy;
 } Keyboard;
+
+typedef struct {
+	struct wl_list link;
+	struct wlr_pointer *wlr_pointer;
+	struct wl_listener destroy;
+} Mouse;
 
 typedef struct {
 	struct wlr_switch *wlr_switch;
@@ -369,7 +403,7 @@ static void dwl_wm_bind(struct wl_client *client, void *data,
 static void dwl_wm_printstatus(Monitor *monitor);
 
 extern struct DBusWatchRs get_fd();
-extern void process_dbus(void *data, void (*func)(const char*));
+extern void process_dbus(void *data, void (*func)(int));
 
 /* variables */
 static const char broken[] = "broken";
@@ -407,6 +441,7 @@ static struct wlr_session_lock_v1 *cur_lock;
 
 static struct wlr_seat *seat;
 static struct wl_list keyboards;
+static struct wl_list mice;
 static unsigned int cursor_mode;
 static Client *grabc;
 static int grabcx, grabcy; /* client-relative */
@@ -797,6 +832,16 @@ cleanupkeyboard(struct wl_listener *listener, void *data)
 }
 
 void
+cleanuppointer(struct wl_listener *listener, void *data)
+{
+	Mouse *mo = wl_container_of(listener, mo, destroy);
+
+	wl_list_remove(&mo->link);
+	wl_list_remove(&mo->destroy.link);
+	free(mo);
+}
+
+void
 cleanupmon(struct wl_listener *listener, void *data)
 {
 	Monitor *m = wl_container_of(listener, m, destroy);
@@ -1170,6 +1215,9 @@ createnotify(struct wl_listener *listener, void *data)
 void
 createpointer(struct wlr_pointer *pointer)
 {
+	Mouse *mo = pointer->data = ecalloc(1, sizeof(*mo));
+	mo->wlr_pointer = pointer;
+	LISTEN(&pointer->base.events.destroy, &mo->destroy, cleanuppointer);
 	if (wlr_input_device_is_libinput(&pointer->base)) {
 		struct libinput_device *libinput_device = (struct libinput_device*)
 			wlr_libinput_get_device_handle(&pointer->base);
@@ -1208,6 +1256,7 @@ createpointer(struct wlr_pointer *pointer)
 		}
 	}
 
+	wl_list_insert(&mice, &mo->link);
 	wlr_cursor_attach_input_device(cursor, &pointer->base);
 }
 
@@ -2064,39 +2113,504 @@ resize(Client *c, struct wlr_box geo, int interact)
 }
 
 void
-dbus_path_function(const char *path)
+dbus_path_function(int path)
 {
 	GVariant *temp;
 	const gchar *tempStr;
 	gsize size;
+	Mouse *mo;
+	Keyboard *kb;
+	Client *c;
+	Monitor *m;
+	DwlWmMonitor *mon;
+	int i, j = 0;
+	double c1, c2, c3, c4;
 	
-	if (strcmp(path, "/dotfiles/dwl/modkey") == 0) {
-		temp = dconf_client_read(dconf_client, "/dotfiles/dwl/modkey");
+	switch (path) {
+		case AccelProfile:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/accel-profile");
 
-		if (temp) {
-			tempStr = g_variant_get_string(temp, &size);
-			if (strcmp(tempStr, "Shift") == 0) {
-				modkey = WLR_MODIFIER_SHIFT;
-			} else if (strcmp(tempStr, "Caps") == 0) {
-				modkey = WLR_MODIFIER_CAPS;
-			} else if (strcmp(tempStr, "Ctrl") == 0) {
-				 modkey = WLR_MODIFIER_CTRL;
-			} else if (strcmp(tempStr, "Alt") == 0) {
-				 modkey = WLR_MODIFIER_ALT;
-			} else if (strcmp(tempStr, "Mod2") == 0) {
-				 modkey = WLR_MODIFIER_MOD2;
-			} else if (strcmp(tempStr, "Mod3") == 0) {
-				 modkey = WLR_MODIFIER_MOD3;
-			} else if (strcmp(tempStr, "Logo") == 0) {
-				 modkey = WLR_MODIFIER_LOGO;
-			} else if (strcmp(tempStr, "Mod5") == 0) {
-				 modkey = WLR_MODIFIER_MOD5;
+			if (temp) {
+				tempStr = g_variant_get_string(temp, &size);
+				if (strcmp(tempStr, "None") == 0) {
+					accel_profile = LIBINPUT_CONFIG_ACCEL_PROFILE_NONE;
+				} else if (strcmp(tempStr, "Flat") == 0) {
+					accel_profile = LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT;
+				} else if (strcmp(tempStr, "Adaptive") == 0) {
+					accel_profile = LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE;
+				}
+			} else {
+				accel_profile = LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE;
 			}
-		} else {
-			modkey = WLR_MODIFIER_LOGO;
-		}
 
-		g_free(temp);
+			g_free(temp);
+
+			wl_list_for_each(mo, &mice, link)
+				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
+					struct libinput_device *libinput_device = (struct libinput_device*)
+						wlr_libinput_get_device_handle(&mo->wlr_pointer->base);
+					if (libinput_device_config_accel_is_available(libinput_device))
+						libinput_device_config_accel_set_profile(libinput_device, accel_profile);
+				}
+			break;
+		case AccelSpeed:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/accel-speed");
+
+			if (temp) {
+				accel_speed = g_variant_get_double(temp);
+			} else {
+				accel_speed = 0.0;
+			}
+
+			g_free(temp);
+
+			wl_list_for_each(mo, &mice, link)
+				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
+					struct libinput_device *libinput_device = (struct libinput_device*)
+						wlr_libinput_get_device_handle(&mo->wlr_pointer->base);
+					if (libinput_device_config_accel_is_available(libinput_device))
+						libinput_device_config_accel_set_speed(libinput_device, accel_speed);
+				}
+			break;
+		case BorderColor:		
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/border-color");
+
+			if (temp) {
+				g_variant_get(temp, "(dddd)", &c1, &c2, &c3, &c4);
+				bordercolor[0] = c1;
+				bordercolor[1] = c2;
+				bordercolor[2] = c3;
+				bordercolor[3] = c4;
+			} else {
+				bordercolor[0] = 0.337;
+				bordercolor[1] = 0.357;
+				bordercolor[2] = 0.078;
+				bordercolor[3] = 1.0;
+			}
+
+			g_free(temp);
+
+			wl_list_for_each(c, &fstack, flink) {
+				if (j != 0)
+					for (i = 0; i < 4; i++)
+						wlr_scene_rect_set_color(c->border[i], bordercolor);
+				j++;
+			}
+			break;
+		case BorderPx:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/border-px");
+
+			if (temp) {
+				borderpx = g_variant_get_int32(temp);
+			} else {
+				borderpx = 1;
+			}
+
+			g_free(temp);
+
+			wl_list_for_each(c, &clients, link) {
+				c->bw = borderpx;
+				client_get_geometry(c, &c->geom);
+				wlr_scene_node_set_position(&c->scene->node, c->geom.x + borderpx,
+					c->geom.y + borderpx);
+			}
+			break;
+		case ButtonMap:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/button-map");
+
+			if (temp) {
+				tempStr = g_variant_get_string(temp, &size);
+				if (strcmp(tempStr, "LRM") == 0) {
+					button_map = LIBINPUT_CONFIG_TAP_MAP_LRM;
+				} else if (strcmp(tempStr, "LMR") == 0) {
+					button_map = LIBINPUT_CONFIG_TAP_MAP_LMR;
+				}
+			} else {
+				button_map = LIBINPUT_CONFIG_TAP_MAP_LRM;
+			}
+
+			g_free(temp);
+
+			wl_list_for_each(mo, &mice, link)
+				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
+					struct libinput_device *libinput_device = (struct libinput_device*)
+						wlr_libinput_get_device_handle(&mo->wlr_pointer->base);
+					if (libinput_device_config_tap_get_finger_count(libinput_device))
+						libinput_device_config_tap_set_button_map(libinput_device, button_map);
+				}
+			break;
+		case BypassSurfaceVisibility: 
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/bypass-surface-visibility");
+
+			if (temp) {
+				bypass_surface_visibility = g_variant_get_boolean(temp);
+			} else {
+				bypass_surface_visibility = 0;
+			}
+
+			g_free(temp);
+			break;
+		case ClickMethod:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/click-method");
+
+			if (temp) {
+				tempStr = g_variant_get_string(temp, &size);
+				if (strcmp(tempStr, "None") == 0) {
+					click_method = LIBINPUT_CONFIG_CLICK_METHOD_NONE;
+				} else if (strcmp(tempStr, "Button Areas") == 0) {
+					click_method = LIBINPUT_CONFIG_CLICK_METHOD_BUTTON_AREAS;
+				} else if (strcmp(tempStr, "Click Finger") == 0) {
+					click_method = LIBINPUT_CONFIG_CLICK_METHOD_CLICKFINGER;
+				}
+			} else {
+				click_method = LIBINPUT_CONFIG_CLICK_METHOD_BUTTON_AREAS;
+			}
+
+			g_free(temp);
+
+			wl_list_for_each(mo, &mice, link)
+				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
+					struct libinput_device *libinput_device = (struct libinput_device*)
+						wlr_libinput_get_device_handle(&mo->wlr_pointer->base);
+					if (libinput_device_config_click_get_methods(libinput_device) != LIBINPUT_CONFIG_CLICK_METHOD_NONE)
+						libinput_device_config_click_set_method (libinput_device, click_method);
+				}
+			break;
+		case DisableTrackpadWhileTyping:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/disable-trackpad-while-typing");
+
+			if (temp) {
+				disable_while_typing = g_variant_get_boolean(temp);
+			} else {
+				disable_while_typing = 1;
+			}
+
+			g_free(temp);
+
+			wl_list_for_each(mo, &mice, link)
+				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
+					struct libinput_device *libinput_device = (struct libinput_device*)
+						wlr_libinput_get_device_handle(&mo->wlr_pointer->base);
+					if (libinput_device_config_dwt_is_available(libinput_device))
+						libinput_device_config_dwt_set_enabled(libinput_device, disable_while_typing);
+				}
+			break;
+		case DragLock:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/drag-lock");
+
+			if (temp) {
+				drag_lock = g_variant_get_boolean(temp);
+			} else {
+				drag_lock = 1;
+			}
+
+			g_free(temp);
+
+			wl_list_for_each(mo, &mice, link)
+				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
+					struct libinput_device *libinput_device = (struct libinput_device*)
+						wlr_libinput_get_device_handle(&mo->wlr_pointer->base);
+					if (libinput_device_config_tap_get_finger_count(libinput_device))
+						libinput_device_config_tap_set_drag_lock_enabled(libinput_device, drag_lock);
+				}
+			break;
+		case FocusColor:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/focus-color");
+
+			if (temp) {
+				g_variant_get(temp, "(dddd)", &c1, &c2, &c3, &c4);
+				focuscolor[0] = c1;
+				focuscolor[1] = c2;
+				focuscolor[2] = c3;
+				focuscolor[3] = c4;
+			} else {
+				focuscolor[0] = 0.918;
+				focuscolor[1] = 0.424;
+				focuscolor[2] = 0.451;
+				focuscolor[3] = 1.0;
+			}
+
+			g_free(temp);
+
+			wl_list_for_each(c, &fstack, flink) {
+				if (!exclusive_focus && !seat->drag)
+					for (i = 0; i < 4; i++)
+						wlr_scene_rect_set_color(c->border[i], focuscolor);
+				return;
+			}
+			break;
+		case FullscreenBg:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/fullscreen-bg");
+
+			if (temp) {
+				g_variant_get(temp, "(dddd)", &c1, &c2, &c3, &c4);
+				fullscreen_bg[0] = c1;
+				fullscreen_bg[1] = c2;
+				fullscreen_bg[2] = c3;
+				fullscreen_bg[3] = c4;
+			} else {
+				fullscreen_bg[0] = 0.1;
+				fullscreen_bg[1] = 0.1;
+				fullscreen_bg[2] = 0.1;
+				fullscreen_bg[3] = 1.0;
+			}
+
+			g_free(temp);
+
+			wl_list_for_each(m, &mons, link)
+				m->fullscreen_bg = wlr_scene_rect_create(layers[LyrFS], 0, 0, fullscreen_bg);
+			break;
+		case LeftHanded:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/left-handed");
+
+			if (temp) {
+				left_handed = g_variant_get_boolean(temp);
+			} else {
+				left_handed = 0;
+			}
+
+			g_free(temp);
+
+			wl_list_for_each(mo, &mice, link)
+				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
+					struct libinput_device *libinput_device = (struct libinput_device*)
+						wlr_libinput_get_device_handle(&mo->wlr_pointer->base);
+					if (libinput_device_config_left_handed_is_available(libinput_device))
+						libinput_device_config_left_handed_set(libinput_device, left_handed);
+				}
+			break;
+		case MiddleButtonEmulation:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/middle-button-emulation");
+
+			if (temp) {
+				middle_button_emulation = g_variant_get_boolean(temp);
+			} else {
+				middle_button_emulation = 1;
+			}
+
+			g_free(temp);
+
+			wl_list_for_each(mo, &mice, link)
+				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
+					struct libinput_device *libinput_device = (struct libinput_device*)
+						wlr_libinput_get_device_handle(&mo->wlr_pointer->base);
+					if (libinput_device_config_middle_emulation_is_available(libinput_device))
+						libinput_device_config_middle_emulation_set_enabled(libinput_device, middle_button_emulation);
+				}
+			break;
+		case Modkey:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/modkey");
+
+			if (temp) {
+				tempStr = g_variant_get_string(temp, &size);
+				if (strcmp(tempStr, "Shift") == 0) {
+					modkey = WLR_MODIFIER_SHIFT;
+				} else if (strcmp(tempStr, "Caps") == 0) {
+					modkey = WLR_MODIFIER_CAPS;
+				} else if (strcmp(tempStr, "Ctrl") == 0) {
+					 modkey = WLR_MODIFIER_CTRL;
+				} else if (strcmp(tempStr, "Alt") == 0) {
+					 modkey = WLR_MODIFIER_ALT;
+				} else if (strcmp(tempStr, "Mod2") == 0) {
+					 modkey = WLR_MODIFIER_MOD2;
+				} else if (strcmp(tempStr, "Mod3") == 0) {
+					 modkey = WLR_MODIFIER_MOD3;
+				} else if (strcmp(tempStr, "Logo") == 0) {
+					 modkey = WLR_MODIFIER_LOGO;
+				} else if (strcmp(tempStr, "Mod5") == 0) {
+					 modkey = WLR_MODIFIER_MOD5;
+				}
+			} else {
+				modkey = WLR_MODIFIER_LOGO;
+			}
+
+			g_free(temp);
+			break;
+		case NaturalScrolling:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/natural-scrolling");
+
+			if (temp) {
+				natural_scrolling = g_variant_get_boolean(temp);
+			} else {
+				natural_scrolling = 0;
+			}
+
+			g_free(temp);
+
+			wl_list_for_each(mo, &mice, link)
+				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
+					struct libinput_device *libinput_device = (struct libinput_device*)
+						wlr_libinput_get_device_handle(&mo->wlr_pointer->base);
+					if (libinput_device_config_scroll_has_natural_scroll(libinput_device))
+						libinput_device_config_scroll_set_natural_scroll_enabled(libinput_device, natural_scrolling);
+				}
+			break;
+		case RepeatDelay:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/repeat-delay");
+
+			if (temp) {
+				repeat_delay = g_variant_get_int32(temp);
+			} else {
+				repeat_delay = 600;
+			}
+
+			g_free(temp);
+			wl_list_for_each(kb, &keyboards, link) {
+				wl_event_source_remove(kb->key_repeat_source);
+				wlr_keyboard_set_repeat_info(kb->wlr_keyboard, repeat_rate, repeat_delay);
+				kb->key_repeat_source = wl_event_loop_add_timer(
+						wl_display_get_event_loop(dpy), keyrepeat, kb);
+			}
+			break;
+		case RepeatRate:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/repeat-rate");
+
+			if (temp) {
+				repeat_rate = g_variant_get_int32(temp);
+			} else {
+				repeat_rate = 25;
+			}
+
+			g_free(temp);
+			wl_list_for_each(kb, &keyboards, link) {
+				wl_event_source_remove(kb->key_repeat_source);
+				wlr_keyboard_set_repeat_info(kb->wlr_keyboard, repeat_rate, repeat_delay);
+				kb->key_repeat_source = wl_event_loop_add_timer(
+						wl_display_get_event_loop(dpy), keyrepeat, kb);
+			}
+			break;
+		case ScrollMethod:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/scroll-method");
+
+			if (temp) {
+				tempStr = g_variant_get_string(temp, &size);
+				if (strcmp(tempStr, "No Scroll") == 0) {
+					scroll_method = LIBINPUT_CONFIG_SCROLL_NO_SCROLL;
+				} else if (strcmp(tempStr, "Two Finger") == 0) {
+					scroll_method = LIBINPUT_CONFIG_SCROLL_2FG;
+				} else if (strcmp(tempStr, "Edge") == 0) {
+					scroll_method = LIBINPUT_CONFIG_SCROLL_EDGE;
+				} else if (strcmp(tempStr, "On Button Down") == 0) {
+					scroll_method = LIBINPUT_CONFIG_SCROLL_ON_BUTTON_DOWN;
+				}
+			} else {
+				scroll_method = LIBINPUT_CONFIG_SCROLL_2FG;
+			}
+
+			g_free(temp);
+
+			wl_list_for_each(mo, &mice, link)
+				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
+					struct libinput_device *libinput_device = (struct libinput_device*)
+						wlr_libinput_get_device_handle(&mo->wlr_pointer->base);
+					if (libinput_device_config_scroll_get_methods(libinput_device) != LIBINPUT_CONFIG_SCROLL_NO_SCROLL)
+						libinput_device_config_scroll_set_method (libinput_device, scroll_method);
+				}
+			break;
+		case SendEventsMode:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/send-events-mode");
+
+			if (temp) {
+				tempStr = g_variant_get_string(temp, &size);
+				if (strcmp(tempStr, "Enabled") == 0) {
+					send_events_mode = LIBINPUT_CONFIG_SEND_EVENTS_ENABLED;
+				} else if (strcmp(tempStr, "Disabled") == 0) {
+					send_events_mode = LIBINPUT_CONFIG_SEND_EVENTS_DISABLED;
+				} else if (strcmp(tempStr, "Disabled on External Mouse") == 0) {
+					send_events_mode = LIBINPUT_CONFIG_SEND_EVENTS_DISABLED_ON_EXTERNAL_MOUSE;
+				}
+			} else {
+				send_events_mode = LIBINPUT_CONFIG_SEND_EVENTS_ENABLED;
+			}
+
+			g_free(temp);
+
+			wl_list_for_each(mo, &mice, link)
+				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
+					struct libinput_device *libinput_device = (struct libinput_device*)
+						wlr_libinput_get_device_handle(&mo->wlr_pointer->base);
+					if (libinput_device_config_send_events_get_modes(libinput_device))
+						libinput_device_config_send_events_set_mode(libinput_device, send_events_mode);
+				}
+			break;
+		case SloppyFocus:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/sloppy-focus");
+
+			if (temp) {
+				sloppyfocus = g_variant_get_boolean(temp);
+			} else {
+				sloppyfocus = 1;
+			}
+
+			g_free(temp);
+			break;
+		case TagCount:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/tag-count");
+
+			if (temp) {
+				tagcount = g_variant_get_int32(temp);
+			} else {
+				tagcount = 9;
+			}
+
+			g_free(temp);
+			wl_list_for_each(m, &mons, link)
+				wl_list_for_each(mon, &m->dwl_wm_monitor_link, link)
+					znet_tapesoftware_dwl_wm_v1_send_tag(mon->resource, tagcount);
+			break;
+		case TapToClick:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/tap-to-click");
+
+			if (temp) {
+				tap_to_click = g_variant_get_boolean(temp);
+			} else {
+				tap_to_click = 1;
+			}
+
+			g_free(temp);
+			wl_list_for_each(mo, &mice, link)
+				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
+					struct libinput_device *libinput_device = (struct libinput_device*)
+						wlr_libinput_get_device_handle(&mo->wlr_pointer->base);
+					if (libinput_device_config_tap_get_finger_count(libinput_device))
+						libinput_device_config_tap_set_enabled(libinput_device, tap_to_click);
+				}
+			break;
+		case TapToDrag:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/tap-to-drag");
+
+			if (temp) {
+				tap_and_drag = g_variant_get_boolean(temp);
+			}
+
+			g_free(temp);
+			wl_list_for_each(mo, &mice, link)
+				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
+					struct libinput_device *libinput_device = (struct libinput_device*)
+						wlr_libinput_get_device_handle(&mo->wlr_pointer->base);
+					if (libinput_device_config_tap_get_finger_count(libinput_device))
+						libinput_device_config_tap_set_drag_enabled(libinput_device, tap_and_drag);
+				}
+			break;
+		case XkbOptions:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/xkb-options");
+
+			if (temp) {
+				xkb_rules.options = g_variant_get_string(temp, &size);
+			} else {
+				xkb_rules.options = "caps:swapescape,compose:ralt";
+			}
+
+			wl_list_for_each(kb, &keyboards, link) {
+				struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+				struct xkb_keymap *keymap = xkb_keymap_new_from_names(context, &xkb_rules,
+					XKB_KEYMAP_COMPILE_NO_FLAGS);
+
+				wlr_keyboard_set_keymap(kb->wlr_keyboard, keymap);
+				xkb_keymap_unref(keymap);
+				xkb_context_unref(context);
+			}
+			break;
 	}
 }
 
@@ -2733,6 +3247,7 @@ setup(void)
 	 * pointer, touch, and drawing tablet device. We also rig up a listener to
 	 * let us know when new input devices are available on the backend.
 	 */
+	wl_list_init(&mice);
 	wl_list_init(&keyboards);
 	wl_signal_add(&backend->events.new_input, &new_input);
 	virtual_keyboard_mgr = wlr_virtual_keyboard_manager_v1_create(dpy);

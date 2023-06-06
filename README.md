@@ -55,3 +55,5 @@ sudo pacman -S dconf-editor
 From there you can navigate into the `dotfiles` folder and change various settings from there!
 
 ![dconf-editor demo](screenshot-dconf.png)
+
+***Configuration changes are applied instantly and don't require restarting the supported apps***

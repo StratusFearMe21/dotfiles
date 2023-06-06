@@ -26,6 +26,7 @@ time = { version = "0.3.20", features = ["local-offset", "formatting"] }
 tz-rs = "0.6.14"
 dconf-sys = { path = "../dconf-sys" }
 glib = "0.17.9"
+memchr = "2.5.0"
 
 [features]
 i3bar = []

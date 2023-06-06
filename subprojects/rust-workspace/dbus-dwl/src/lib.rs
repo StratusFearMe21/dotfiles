@@ -1,8 +1,6 @@
-use std::{
-    ffi::{c_int, CString},
-    os::raw::c_char,
-    time::Duration,
-};
+use std::{ffi::c_int, time::Duration};
+
+const FST: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/fst.fst"));
 
 use dbus::{
     blocking::SyncConnection,
@@ -12,6 +10,7 @@ use dbus::{
     MessageType, Path,
 };
 use dconf::CaDesrtDconfWriterNotify;
+use fst::Map;
 
 mod dconf;
 
@@ -65,16 +64,8 @@ pub unsafe extern "C" fn get_fd() -> WatchFFI {
 #[no_mangle]
 pub unsafe extern "C" fn process_dbus(
     dbus_session: *mut SyncConnection,
-    function: extern "C" fn(*const c_char),
+    function: extern "C" fn(c_int),
 ) {
-    /*
-    let mut match_rule_nameacquired = MatchRule::default();
-    match_rule_nameacquired.msg_type = Some(MessageType::Signal);
-    match_rule_nameacquired.path = Some(Path::new("/org/freedesktop/DBus").unwrap());
-    match_rule_nameacquired.interface = Some(Interface::new("org.freedesktop.DBus").unwrap());
-    match_rule_nameacquired.member = Some(Member::new("NameAcquired").unwrap());
-    */
-
     let dbus_session = Box::from_raw(dbus_session);
 
     dbus_session
@@ -84,9 +75,13 @@ pub unsafe extern "C" fn process_dbus(
 
     while let Some(message) = dbus_session.channel().pop_message() {
         if let Ok(msg) = message.read_all::<CaDesrtDconfWriterNotify>() {
-            let field = CString::new(msg.prefix).unwrap();
-
-            function(field.as_ptr());
+            let map = Map::new(FST).unwrap();
+            for c in msg.changes {
+                let mut prefix = msg.prefix.clone();
+                prefix.push_str(&c);
+                let num = map.get(prefix.as_bytes()).unwrap();
+                function(num as c_int);
+            }
         }
     }
 
