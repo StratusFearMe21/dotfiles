@@ -1,5 +1,5 @@
 pkgname=dotfiles
-pkgver=0.29.0
+pkgver=0.29.3
 pkgrel=1
 pkgdesc='All my dotfiles as one package'
 arch=('any')

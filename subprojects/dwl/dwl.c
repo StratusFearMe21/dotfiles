@@ -2139,11 +2139,10 @@ dbus_path_function(int path)
 				} else if (strcmp(tempStr, "Adaptive") == 0) {
 					accel_profile = LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE;
 				}
+				g_variant_unref(temp);
 			} else {
 				accel_profile = LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE;
 			}
-
-			g_free(temp);
 
 			wl_list_for_each(mo, &mice, link)
 				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
@@ -2158,11 +2157,10 @@ dbus_path_function(int path)
 
 			if (temp) {
 				accel_speed = g_variant_get_double(temp);
+				g_variant_unref(temp);
 			} else {
 				accel_speed = 0.0;
 			}
-
-			g_free(temp);
 
 			wl_list_for_each(mo, &mice, link)
 				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
@@ -2181,14 +2179,13 @@ dbus_path_function(int path)
 				bordercolor[1] = c2;
 				bordercolor[2] = c3;
 				bordercolor[3] = c4;
+				g_variant_unref(temp);
 			} else {
 				bordercolor[0] = 0.337;
 				bordercolor[1] = 0.357;
 				bordercolor[2] = 0.078;
 				bordercolor[3] = 1.0;
 			}
-
-			g_free(temp);
 
 			wl_list_for_each(c, &fstack, flink) {
 				if (j != 0)
@@ -2202,12 +2199,11 @@ dbus_path_function(int path)
 
 			if (temp) {
 				borderpx = g_variant_get_int32(temp);
+				g_variant_unref(temp);
 			} else {
 				borderpx = 1;
 			}
-
-			g_free(temp);
-
+			
 			wl_list_for_each(c, &clients, link) {
 				c->bw = borderpx;
 				client_get_geometry(c, &c->geom);
@@ -2225,11 +2221,10 @@ dbus_path_function(int path)
 				} else if (strcmp(tempStr, "LMR") == 0) {
 					button_map = LIBINPUT_CONFIG_TAP_MAP_LMR;
 				}
+				g_variant_unref(temp);
 			} else {
 				button_map = LIBINPUT_CONFIG_TAP_MAP_LRM;
 			}
-
-			g_free(temp);
 
 			wl_list_for_each(mo, &mice, link)
 				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
@@ -2244,11 +2239,11 @@ dbus_path_function(int path)
 
 			if (temp) {
 				bypass_surface_visibility = g_variant_get_boolean(temp);
+				g_variant_unref(temp);
 			} else {
 				bypass_surface_visibility = 0;
 			}
 
-			g_free(temp);
 			break;
 		case ClickMethod:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/click-method");
@@ -2262,11 +2257,10 @@ dbus_path_function(int path)
 				} else if (strcmp(tempStr, "Click Finger") == 0) {
 					click_method = LIBINPUT_CONFIG_CLICK_METHOD_CLICKFINGER;
 				}
+				g_variant_unref(temp);
 			} else {
 				click_method = LIBINPUT_CONFIG_CLICK_METHOD_BUTTON_AREAS;
 			}
-
-			g_free(temp);
 
 			wl_list_for_each(mo, &mice, link)
 				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
@@ -2281,11 +2275,10 @@ dbus_path_function(int path)
 
 			if (temp) {
 				disable_while_typing = g_variant_get_boolean(temp);
+				g_variant_unref(temp);
 			} else {
 				disable_while_typing = 1;
 			}
-
-			g_free(temp);
 
 			wl_list_for_each(mo, &mice, link)
 				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
@@ -2300,11 +2293,10 @@ dbus_path_function(int path)
 
 			if (temp) {
 				drag_lock = g_variant_get_boolean(temp);
+				g_variant_unref(temp);
 			} else {
 				drag_lock = 1;
 			}
-
-			g_free(temp);
 
 			wl_list_for_each(mo, &mice, link)
 				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
@@ -2323,14 +2315,13 @@ dbus_path_function(int path)
 				focuscolor[1] = c2;
 				focuscolor[2] = c3;
 				focuscolor[3] = c4;
+				g_variant_unref(temp);
 			} else {
 				focuscolor[0] = 0.918;
 				focuscolor[1] = 0.424;
 				focuscolor[2] = 0.451;
 				focuscolor[3] = 1.0;
 			}
-
-			g_free(temp);
 
 			wl_list_for_each(c, &fstack, flink) {
 				if (!exclusive_focus && !seat->drag)
@@ -2348,14 +2339,13 @@ dbus_path_function(int path)
 				fullscreen_bg[1] = c2;
 				fullscreen_bg[2] = c3;
 				fullscreen_bg[3] = c4;
+				g_variant_unref(temp);
 			} else {
 				fullscreen_bg[0] = 0.1;
 				fullscreen_bg[1] = 0.1;
 				fullscreen_bg[2] = 0.1;
 				fullscreen_bg[3] = 1.0;
 			}
-
-			g_free(temp);
 
 			wl_list_for_each(m, &mons, link)
 				m->fullscreen_bg = wlr_scene_rect_create(layers[LyrFS], 0, 0, fullscreen_bg);
@@ -2365,11 +2355,10 @@ dbus_path_function(int path)
 
 			if (temp) {
 				left_handed = g_variant_get_boolean(temp);
+				g_variant_unref(temp);
 			} else {
 				left_handed = 0;
 			}
-
-			g_free(temp);
 
 			wl_list_for_each(mo, &mice, link)
 				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
@@ -2384,11 +2373,10 @@ dbus_path_function(int path)
 
 			if (temp) {
 				middle_button_emulation = g_variant_get_boolean(temp);
+				g_variant_unref(temp);
 			} else {
 				middle_button_emulation = 1;
 			}
-
-			g_free(temp);
 
 			wl_list_for_each(mo, &mice, link)
 				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
@@ -2420,22 +2408,21 @@ dbus_path_function(int path)
 				} else if (strcmp(tempStr, "Mod5") == 0) {
 					 modkey = WLR_MODIFIER_MOD5;
 				}
+				g_variant_unref(temp);
 			} else {
 				modkey = WLR_MODIFIER_LOGO;
 			}
 
-			g_free(temp);
 			break;
 		case NaturalScrolling:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/natural-scrolling");
 
 			if (temp) {
 				natural_scrolling = g_variant_get_boolean(temp);
+				g_variant_unref(temp);
 			} else {
 				natural_scrolling = 0;
 			}
-
-			g_free(temp);
 
 			wl_list_for_each(mo, &mice, link)
 				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
@@ -2450,11 +2437,11 @@ dbus_path_function(int path)
 
 			if (temp) {
 				repeat_delay = g_variant_get_int32(temp);
+				g_variant_unref(temp);
 			} else {
 				repeat_delay = 600;
 			}
 
-			g_free(temp);
 			wl_list_for_each(kb, &keyboards, link) {
 				wl_event_source_remove(kb->key_repeat_source);
 				wlr_keyboard_set_repeat_info(kb->wlr_keyboard, repeat_rate, repeat_delay);
@@ -2467,11 +2454,11 @@ dbus_path_function(int path)
 
 			if (temp) {
 				repeat_rate = g_variant_get_int32(temp);
+				g_variant_unref(temp);
 			} else {
 				repeat_rate = 25;
 			}
 
-			g_free(temp);
 			wl_list_for_each(kb, &keyboards, link) {
 				wl_event_source_remove(kb->key_repeat_source);
 				wlr_keyboard_set_repeat_info(kb->wlr_keyboard, repeat_rate, repeat_delay);
@@ -2493,11 +2480,10 @@ dbus_path_function(int path)
 				} else if (strcmp(tempStr, "On Button Down") == 0) {
 					scroll_method = LIBINPUT_CONFIG_SCROLL_ON_BUTTON_DOWN;
 				}
+				g_variant_unref(temp);
 			} else {
 				scroll_method = LIBINPUT_CONFIG_SCROLL_2FG;
 			}
-
-			g_free(temp);
 
 			wl_list_for_each(mo, &mice, link)
 				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
@@ -2519,11 +2505,10 @@ dbus_path_function(int path)
 				} else if (strcmp(tempStr, "Disabled on External Mouse") == 0) {
 					send_events_mode = LIBINPUT_CONFIG_SEND_EVENTS_DISABLED_ON_EXTERNAL_MOUSE;
 				}
+				g_variant_unref(temp);
 			} else {
 				send_events_mode = LIBINPUT_CONFIG_SEND_EVENTS_ENABLED;
 			}
-
-			g_free(temp);
 
 			wl_list_for_each(mo, &mice, link)
 				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
@@ -2538,22 +2523,22 @@ dbus_path_function(int path)
 
 			if (temp) {
 				sloppyfocus = g_variant_get_boolean(temp);
+				g_variant_unref(temp);
 			} else {
 				sloppyfocus = 1;
 			}
 
-			g_free(temp);
 			break;
 		case TagCount:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/tag-count");
 
 			if (temp) {
 				tagcount = g_variant_get_int32(temp);
+				g_variant_unref(temp);
 			} else {
 				tagcount = 9;
 			}
 
-			g_free(temp);
 			wl_list_for_each(m, &mons, link)
 				wl_list_for_each(mon, &m->dwl_wm_monitor_link, link)
 					znet_tapesoftware_dwl_wm_v1_send_tag(mon->resource, tagcount);
@@ -2563,11 +2548,11 @@ dbus_path_function(int path)
 
 			if (temp) {
 				tap_to_click = g_variant_get_boolean(temp);
+				g_variant_unref(temp);
 			} else {
 				tap_to_click = 1;
 			}
 
-			g_free(temp);
 			wl_list_for_each(mo, &mice, link)
 				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
 					struct libinput_device *libinput_device = (struct libinput_device*)
@@ -2581,9 +2566,9 @@ dbus_path_function(int path)
 
 			if (temp) {
 				tap_and_drag = g_variant_get_boolean(temp);
+				g_variant_unref(temp);
 			}
 
-			g_free(temp);
 			wl_list_for_each(mo, &mice, link)
 				if (wlr_input_device_is_libinput(&mo->wlr_pointer->base)) {
 					struct libinput_device *libinput_device = (struct libinput_device*)
@@ -2596,7 +2581,8 @@ dbus_path_function(int path)
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/xkb-options");
 
 			if (temp) {
-				xkb_rules.options = g_variant_get_string(temp, &size);
+				g_variant_get(temp, "s", &xkb_rules.options);
+				g_variant_unref(temp);
 			} else {
 				xkb_rules.options = "caps:swapescape,compose:ralt";
 			}
@@ -2828,17 +2814,15 @@ config(void)
 		} else if (strcmp(tempStr, "Adaptive") == 0) {
 			accel_profile = LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE;
 		}
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/accel-speed");
 
 	if (temp) {
 		accel_speed = g_variant_get_double(temp);
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/border-color");
 
@@ -2848,17 +2832,15 @@ config(void)
 		bordercolor[1] = c2;
 		bordercolor[2] = c3;
 		bordercolor[3] = c4;
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/border-px");
 
 	if (temp) {
 		borderpx = g_variant_get_int32(temp);
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/button-map");
 
@@ -2869,17 +2851,15 @@ config(void)
 		} else if (strcmp(tempStr, "LMR") == 0) {
 			button_map = LIBINPUT_CONFIG_TAP_MAP_LMR;
 		}
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/bypass-surface-visibility");
 
 	if (temp) {
 		bypass_surface_visibility = g_variant_get_boolean(temp);
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/click-method");
 
@@ -2892,25 +2872,22 @@ config(void)
 		} else if (strcmp(tempStr, "Click Finger") == 0) {
 			click_method = LIBINPUT_CONFIG_CLICK_METHOD_CLICKFINGER;
 		}
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/disable-trackpad-while-typing");
 
 	if (temp) {
 		disable_while_typing = g_variant_get_boolean(temp);
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/drag-lock");
 
 	if (temp) {
 		drag_lock = g_variant_get_boolean(temp);
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/focus-color");
 
@@ -2920,9 +2897,8 @@ config(void)
 		focuscolor[1] = c2;
 		focuscolor[2] = c3;
 		focuscolor[3] = c4;
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/fullscreen-bg");
 
@@ -2932,25 +2908,22 @@ config(void)
 		fullscreen_bg[1] = c2;
 		fullscreen_bg[2] = c3;
 		fullscreen_bg[3] = c4;
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/left-handed");
 
 	if (temp) {
 		left_handed = g_variant_get_boolean(temp);
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/middle-button-emulation");
 
 	if (temp) {
 		middle_button_emulation = g_variant_get_boolean(temp);
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/modkey");
 
@@ -2973,33 +2946,29 @@ config(void)
 		} else if (strcmp(tempStr, "Mod5") == 0) {
 			 modkey = WLR_MODIFIER_MOD5;
 		}
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/natural-scrolling");
 
 	if (temp) {
 		natural_scrolling = g_variant_get_boolean(temp);
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/repeat-delay");
 
 	if (temp) {
 		repeat_delay = g_variant_get_int32(temp);
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/repeat-rate");
 
 	if (temp) {
 		repeat_rate = g_variant_get_int32(temp);
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/scroll-method");
 
@@ -3014,9 +2983,8 @@ config(void)
 		} else if (strcmp(tempStr, "On Button Down") == 0) {
 			scroll_method = LIBINPUT_CONFIG_SCROLL_ON_BUTTON_DOWN;
 		}
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/send-events-mode");
 
@@ -3029,46 +2997,42 @@ config(void)
 		} else if (strcmp(tempStr, "Disabled on External Mouse") == 0) {
 			send_events_mode = LIBINPUT_CONFIG_SEND_EVENTS_DISABLED_ON_EXTERNAL_MOUSE;
 		}
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/sloppy-focus");
 
 	if (temp) {
 		sloppyfocus = g_variant_get_boolean(temp);
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/tag-count");
 
 	if (temp) {
 		tagcount = g_variant_get_int32(temp);
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/tap-to-click");
 
 	if (temp) {
 		tap_to_click = g_variant_get_boolean(temp);
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/tap-to-drag");
 
 	if (temp) {
 		tap_and_drag = g_variant_get_boolean(temp);
+		g_variant_unref(temp);
 	}
-
-	g_free(temp);
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/xkb-options");
 
 	if (temp) {
-		xkb_rules.options = g_variant_get_string(temp, &size);
+		g_variant_get(temp, "s", &xkb_rules.options);
+		g_variant_unref(temp);
 	}
 }
 
