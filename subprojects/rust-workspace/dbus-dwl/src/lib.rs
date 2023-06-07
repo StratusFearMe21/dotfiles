@@ -79,8 +79,9 @@ pub unsafe extern "C" fn process_dbus(
             for c in msg.changes {
                 let mut prefix = msg.prefix.clone();
                 prefix.push_str(&c);
-                let num = map.get(prefix.as_bytes()).unwrap();
-                function(num as c_int);
+                if let Some(num) = map.get(prefix.as_bytes()) {
+                    function(num as c_int);
+                }
             }
         }
     }
