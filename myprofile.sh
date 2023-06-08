@@ -11,4 +11,7 @@ export CC_LD=mold
 export CXX_LD=mold
 export RANLIB=llvm-ranlib
 export AR=llvm-ar
+export WAYLAND_DISPLAY=wayland-0
+export DISPLAY=:0
+export XDG_CURRENT_DESKTOP=wlroots
 [ -f $HOME/.config/user-dirs.dirs ] && . $HOME/.config/user-dirs.dirs

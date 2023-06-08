@@ -1,3 +1,4 @@
+//
 use std::{ffi::c_int, time::Duration};
 
 const FST: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/fst.fst"));
@@ -24,13 +25,7 @@ pub struct WatchFFI {
 
 #[no_mangle]
 pub unsafe extern "C" fn get_fd() -> WatchFFI {
-    let mut dbus_session = Channel::get_private(dbus::channel::BusType::Session);
-
-    while dbus_session.is_err() {
-        dbus_session = Channel::get_private(dbus::channel::BusType::Session);
-    }
-
-    let mut dbus_session = dbus_session.unwrap();
+    let mut dbus_session = Channel::get_private(dbus::channel::BusType::Session).unwrap();
 
     dbus_session.set_watch_enabled(true);
 

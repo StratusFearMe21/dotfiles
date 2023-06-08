@@ -1,6 +1,6 @@
 pkgname=dotfiles
-pkgver=0.29.4
-pkgrel=1
+pkgver=1.0.0
+pkgrel=16
 pkgdesc='All my dotfiles as one package'
 arch=('any')
 install=dotfiles.install
@@ -105,8 +105,10 @@ makedepends=(
 )
 provides=('wlroots')
 conflicts=('wlroots')
+recursion=0
 
 build() {
+  export srcdir
   CC=clang AR=llvm-ar CXX=clang++ CC_LD=mold CXX_LD=mold meson setup build \
     "$srcdir/.." \
     -Db_lto=true \
@@ -116,13 +118,20 @@ build() {
     -Ddwl:xwayland=enabled
 
   meson compile -C build
+  if [[ -f "$srcdir/rust-build" && $recursion -eq 0 ]]; then
+    rm -rf "$srcdir/rust-build"
+    recursion=1
+    build
+  fi
 }
 
 package() {
+  rm -rf "$srcdir/rust-build"
   echo '*' > "$pkgdir/../.gitignore"
   cd "$srcdir"
   meson install -C build --no-rebuild --destdir="$pkgdir"
   rm -rf "$pkgdir/usr/lib/librustbar.a"
+  rm -rf "$pkgdir/usr/lib/libdbus_dwl.a"
   mkdir -p "$pkgdir/etc/mpv/scripts"
   ln -sf /usr/lib/liblistenbrainz_mpv.so "$pkgdir/etc/mpv/scripts/liblistenbrainz_mpv.so"
   ln -sf /usr/share/mpv/scripts/autoload.lua "$pkgdir/etc/mpv/scripts/autoload.lua"

@@ -1,4 +1,3 @@
-//
 /*
  * See LICENSE file for copyright and license details.
  */
@@ -530,8 +529,6 @@ static enum libinput_config_tap_button_map button_map = LIBINPUT_CONFIG_TAP_MAP_
 /* attempt to encapsulate suck into one file */
 #include "client.h"
 
-static pid_t *autostart_pids;
-static size_t autostart_len;
 static DConfClient *dconf_client;
 
 /* function implementations */
@@ -565,14 +562,9 @@ applybounds(Client *c, struct wlr_box *bbox)
 void
 autostartexec(void) {
 	const char *const *p;
-	size_t i = 0;
 
-	for (p = autostart; *p; autostart_len++, p++)
-		while (*++p);
-
-	autostart_pids = calloc(autostart_len, sizeof(pid_t));
-	for (p = autostart; *p; i++, p++) {
-		if ((autostart_pids[i] = fork()) == 0) {
+	for (p = autostart; *p; p++) {
+		if (fork() == 0) {
 			setsid();
 			execvp(*p, (char *const *)p);
 			die("dwl: execvp %s:", *p);
@@ -795,19 +787,11 @@ checkidleinhibitor(struct wlr_surface *exclude)
 void
 cleanup(void)
 {
-	size_t i;
 #ifdef XWAYLAND
 	wlr_xwayland_destroy(xwayland);
 #endif
 	wl_display_destroy_clients(dpy);
 
-	/* kill child processes */
-	for (i = 0; i < autostart_len; i++) {
-		if (0 < autostart_pids[i]) {
-			kill(autostart_pids[i], SIGTERM);
-			waitpid(autostart_pids[i], NULL, 0);
-		}
-	}
 	wlr_backend_destroy(backend);
 	wlr_renderer_destroy(drw);
 	wlr_allocator_destroy(alloc);
@@ -2035,8 +2019,11 @@ printstatus(void)
 }
 
 void
-quit(const Arg *arg)
+quit
+(const Arg *arg)
 {
+	pid_t s6_pid = atoi(getenv("!"));
+	kill(s6_pid, SIGINT);
 	wl_display_terminate(dpy);
 }
 
@@ -3719,21 +3706,8 @@ sigchld(int unused)
 	 * XWayland process
 	 */
 	while (!waitid(P_ALL, 0, &in, WEXITED|WNOHANG|WNOWAIT) && in.si_pid
-			&& (!xwayland || in.si_pid != xwayland->server->pid)
-			) {
-				pid_t *p, *lim;
-		 		waitpid(in.si_pid, NULL, 0);
-				if (!(p = autostart_pids))
-					continue;
-				lim = &p[autostart_len];
-
-				for (; p < lim; p++) {
-					if (*p == in.si_pid) {
-						*p = -1;
-						break;
-					}
-				}
-			}
+			&& (!xwayland || in.si_pid != xwayland->server->pid))
+		waitpid(in.si_pid, NULL, 0);
 }
 
 void
@@ -3771,6 +3745,8 @@ xwaylandready(struct wl_listener *listener, void *data)
 int
 main(int argc, char *argv[])
 {
+	unsetenv("WAYLAND_DISPLAY");
+	unsetenv("DISPLAY");
 	int rfkill = open("/dev/rfkill", O_CLOEXEC);
 	if (rfkill < 0) {
 		die("open");
