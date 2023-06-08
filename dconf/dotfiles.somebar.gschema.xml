@@ -16,6 +16,14 @@
           no be updated longer appear in the status bar if set to false
         </description>
       </key>
+      <key name="time-show-day" type="b">
+        <default>true</default>
+        <summary>Show the day of the week in the time block</summary>
+        <description>
+          Show the current system day of the week in the status bar, Setting
+          this block to false should have no performance impact
+        </description>
+      </key>
       <key name="brightness-block" type="b">
         <default>true</default>
         <summary>Show the current brightness in the status bar</summary>

@@ -50,6 +50,7 @@ use time::format_description::modifier::Day;
 use time::format_description::modifier::Hour;
 use time::format_description::modifier::Minute;
 use time::format_description::modifier::Month;
+use time::format_description::modifier::Weekday;
 use time::format_description::modifier::Year;
 use time::OffsetDateTime;
 use time::UtcOffset;
@@ -251,11 +252,12 @@ pub trait GetSharedData<F: FnMut(Vec<u8>)> {
 struct TimeBlock {
     now: OffsetDateTime,
     is_time_updated: bool,
+    show_day: bool,
     handles: [RegistrationToken; 2],
 }
 
 impl TimeBlock {
-    fn new<F: FnMut(Vec<u8>), G: GetSharedData<F>>(handle: &LoopHandle<G>) -> Self {
+    fn new<F: FnMut(Vec<u8>), G: GetSharedData<F>>(handle: &LoopHandle<G>, show_day: bool) -> Self {
         let now_instant = Instant::now();
         let now = time::OffsetDateTime::now_utc();
         let timezone = tz::TimeZone::local().unwrap();
@@ -298,6 +300,7 @@ impl TimeBlock {
 
         Self {
             now,
+            show_day,
             is_time_updated: false,
             handles: [chld_handle, timer_handle],
         }
@@ -612,6 +615,20 @@ const DATE_FMT: [format_description::FormatItem; 5] = [
     format_description::FormatItem::Component(format_description::Component::Year(Year::default())),
 ];
 
+const DATE_FMT_W_DAY: [format_description::FormatItem; 7] = [
+    format_description::FormatItem::Component(format_description::Component::Month(
+        Month::default(),
+    )),
+    format_description::FormatItem::Literal(b"/"),
+    format_description::FormatItem::Component(format_description::Component::Day(Day::default())),
+    format_description::FormatItem::Literal(b"/"),
+    format_description::FormatItem::Component(format_description::Component::Year(Year::default())),
+    format_description::FormatItem::Literal(b" "),
+    format_description::FormatItem::Component(format_description::Component::Weekday(
+        Weekday::default(),
+    )),
+];
+
 const NTP_SERVERS: [&str; 18] = [
     "time-a-g.nist.gov",
     "time-b-g.nist.gov",
@@ -662,7 +679,10 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
                 .unwrap();
             let mut time = None;
             if dconf_read_variant(dconf, "/dotfiles/somebar/time-block").unwrap_or(true) {
-                time = Some(TimeBlock::new(handle))
+                time = Some(TimeBlock::new(
+                    handle,
+                    dconf_read_variant(dconf, "/dotfiles/somebar/time-show-day").unwrap_or(true),
+                ))
             }
 
             let mut brightness = None;
@@ -761,8 +781,14 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
                                     )
                                     .unwrap_or(true)
                                     {
-                                        shared_data.get_shared_data().time =
-                                            Some(TimeBlock::new(&loop_handle));
+                                        shared_data.get_shared_data().time = Some(TimeBlock::new(
+                                            &loop_handle,
+                                            dconf_read_variant(
+                                                shared_data.get_shared_data().dconf,
+                                                "/dotfiles/somebar/time-show-day",
+                                            )
+                                            .unwrap_or(true),
+                                        ));
                                     } else {
                                         if let Some(time) =
                                             shared_data.get_shared_data().time.take()
@@ -771,6 +797,17 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
                                         }
                                     }
                                     write_bar!(shared_data);
+                                }
+                                "/dotfiles/somebar/time-show-day" => {
+                                    let sd = shared_data.get_shared_data();
+                                    if let Some(ref mut time) = sd.time {
+                                        time.show_day = dconf_read_variant(
+                                            sd.dconf,
+                                            "/dotfiles/somebar/time-show-day",
+                                        )
+                                        .unwrap_or(true);
+                                        write_bar!(shared_data);
+                                    }
                                 }
                                 "/dotfiles/somebar/brightness-block" => {
                                     if dconf_read_variant(
@@ -989,7 +1026,11 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
             time.now.format_into(f, TIME_FMT.as_ref()).unwrap();
             f.write_all(b" \xEE\x82\xB1 ")?;
             f.write_all(b"\xF3\xB0\x83\xB6 ").unwrap();
-            time.now.format_into(f, DATE_FMT.as_ref()).unwrap();
+            if time.show_day {
+                time.now.format_into(f, DATE_FMT_W_DAY.as_ref()).unwrap();
+            } else {
+                time.now.format_into(f, DATE_FMT.as_ref()).unwrap();
+            }
             f.write_all(b" \xEE\x82\xB1 ")?;
         }
 
@@ -1053,7 +1094,11 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
             time.now.format_into(f, TIME_FMT.as_ref()).unwrap();
             f.write_all(b"\n")?;
             write!(f, include_str!("table.txt"), "󰃶 ")?;
-            time.now.format_into(f, DATE_FMT.as_ref()).unwrap();
+            if time.show_day {
+                time.now.format_into(f, DATE_FMT_W_DAY.as_ref()).unwrap();
+            } else {
+                time.now.format_into(f, DATE_FMT.as_ref()).unwrap();
+            }
             f.write_all(b"\n")?;
         }
 
