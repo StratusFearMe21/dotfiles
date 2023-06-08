@@ -18,6 +18,8 @@
 #include <linux/input-event-codes.h>
 #include <wayland-client.h>
 #include <wayland-cursor.h>
+#include "client/dconf-client.h"
+#include "glibmm/variant.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "xdg-output-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
@@ -53,14 +55,18 @@ static void setupMonitor(uint32_t name, wl_output* output);
 static void updatemon(Monitor &mon);
 static void onReady();
 extern "C" void onStatus(const char *status);
+extern "C" void replaceFont();
+extern "C" void changeBarPos();
+extern "C" void changePadding();
 static void onGlobalAdd(void*, wl_registry* registry, uint32_t name, const char* interface, uint32_t version);
 static void onGlobalRemove(void*, wl_registry* registry, uint32_t name);
 static void requireGlobal(const void* p, const char* name);
-extern "C" void init();
+extern "C" void init(DConfClient *dconf);
 extern "C" void config();
+extern "C" void updateColors();
 
 wl_display* display;
-Glib::ustring font;
+std::string font;
 wl_compositor* compositor;
 wl_shm* shm;
 zwlr_layer_shell_v1* wlrLayerShell;
@@ -301,6 +307,64 @@ extern "C" void onStatus(const char *status) {
 	}
 }
 
+extern "C" void replaceFont() {
+	for (auto &monitor : monitors) {
+		monitor.bar.replaceFont();
+	}
+}
+
+void changeBarPosOnMonitors() {
+	for (auto &monitor : monitors) {
+		monitor.bar.changeBarPos();
+	}
+}
+
+void updateBarPos() {
+	GVariant *topbarC = dconf_client_read(dconf, "/dotfiles/somebar/top-bar");
+	if (topbarC) {
+		Glib::VariantBase topbarBase = Glib::VariantBase(topbarC, false);
+		Glib::Variant<bool> topbarVariant = Glib::VariantBase::cast_dynamic<Glib::Variant<bool>>(topbarBase);
+		topbar = topbarVariant.get();
+	} else {
+		topbar = true;
+	}
+}
+
+extern "C" void changeBarPos() {
+	updateBarPos();
+	changeBarPosOnMonitors();
+}
+
+void updatePadding() {
+	GVariant *paddingXC = dconf_client_read(dconf, "/dotfiles/somebar/padding-x");
+	if (paddingXC) {
+		Glib::VariantBase paddingXBase = Glib::VariantBase(paddingXC, false);
+		Glib::Variant<int> paddingXVariant = Glib::VariantBase::cast_dynamic<Glib::Variant<int>>(paddingXBase);
+		paddingX = paddingXVariant.get();
+	} else {
+		paddingX = 10;
+	}
+	GVariant *paddingYC = dconf_client_read(dconf, "/dotfiles/somebar/padding-y");
+	if (paddingYC) {
+		Glib::VariantBase paddingYBase = Glib::VariantBase(paddingYC, false);
+		Glib::Variant<int> paddingYVariant = Glib::VariantBase::cast_dynamic<Glib::Variant<int>>(paddingYBase);
+		paddingY = paddingYVariant.get();
+	} else {
+		paddingY = 3;
+	}
+}
+
+void changePaddingOnMons() {
+	for (auto &monitor : monitors) {
+		monitor.bar.changePadding();
+	}
+}
+
+extern "C" void changePadding() {
+	updatePadding();
+	changePaddingOnMons();
+}
+
 struct HandleGlobalHelper {
 	wl_registry* registry;
 	uint32_t name;
@@ -354,9 +418,42 @@ static const struct wl_registry_listener registry_listener = {
 	.global_remove = onGlobalRemove,
 };
 
+void
+updateColors() {
+	GVariant *colorInactiveC = dconf_client_read(dconf, "/dotfiles/somebar/color-inactive");
+	if (colorInactiveC) {
+		Glib::VariantBase colorInactiveBase = Glib::VariantBase(colorInactiveC, false);
+		Glib::Variant<std::tuple<std::tuple<double, double, double>, std::tuple<double, double, double>>> colorInactiveVariant = Glib::VariantBase::cast_dynamic<Glib::Variant<std::tuple<std::tuple<double, double, double>, std::tuple<double, double, double>>>>(colorInactiveBase);
+		colorInactive.fg.r = std::get<0>(std::get<0>(colorInactiveVariant.get()));
+		colorInactive.fg.g = std::get<1>(std::get<0>(colorInactiveVariant.get()));
+		colorInactive.fg.b = std::get<2>(std::get<0>(colorInactiveVariant.get()));
+		colorInactive.bg.r = std::get<0>(std::get<1>(colorInactiveVariant.get()));
+		colorInactive.bg.g = std::get<1>(std::get<1>(colorInactiveVariant.get()));
+		colorInactive.bg.b = std::get<2>(std::get<1>(colorInactiveVariant.get()));
+	} else {
+		colorInactive = {Color(0.701, 0.694, 0.678), Color(0.039, 0.054, 0.078)};
+	}
+	GVariant *colorActiveC = dconf_client_read(dconf, "/dotfiles/somebar/color-active");
+	if (colorActiveC) {
+		Glib::VariantBase colorActiveBase = Glib::VariantBase(colorActiveC, false);
+		Glib::Variant<std::tuple<std::tuple<double, double, double>, std::tuple<double, double, double>>> colorActiveVariant = Glib::VariantBase::cast_dynamic<Glib::Variant<std::tuple<std::tuple<double, double, double>, std::tuple<double, double, double>>>>(colorActiveBase);
+		colorActive.fg.r = std::get<0>(std::get<0>(colorActiveVariant.get()));
+		colorActive.fg.g = std::get<1>(std::get<0>(colorActiveVariant.get()));
+		colorActive.fg.b = std::get<2>(std::get<0>(colorActiveVariant.get()));
+		colorActive.bg.r = std::get<0>(std::get<1>(colorActiveVariant.get()));
+		colorActive.bg.g = std::get<1>(std::get<1>(colorActiveVariant.get()));
+		colorActive.bg.b = std::get<2>(std::get<1>(colorActiveVariant.get()));
+	} else {
+		colorActive = {Color(1, 0.560, 0.250), Color(0.2, 0.227, 0.250)};
+	}
+}
+
 int main(int argc, char* argv[])
 {
 	int opt;
+	updateColors();
+	updatePadding();
+	updateBarPos();
 	while ((opt = getopt(argc, argv, "hv:")) != -1) {
 		switch (opt) {
 			case 'h':
@@ -384,7 +481,7 @@ int main(int argc, char* argv[])
 	wl_display_roundtrip(display);
 	onReady();
 	
-	init();
+	init(dconf);
 }
 
 void requireGlobal(const void* p, const char* name)

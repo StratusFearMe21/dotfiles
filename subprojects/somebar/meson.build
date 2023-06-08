@@ -9,7 +9,7 @@ cc = meson.get_compiler('c')
 wayland_dep = dependency('wayland-client')
 wayland_cursor_dep = dependency('wayland-cursor')
 cairo_dep = dependency('cairo')
-gio = dependency('giomm-2.4')
+glib = dependency('glibmm-2.4')
 dconf = dependency('dconf')
 dbus = dependency('dbus-1')
 pango_dep = dependency('pango')
@@ -29,7 +29,7 @@ executable('somebar',
 	    wayland_dep,
 			dbus,
 			dconf,
-			gio,
+			glib,
 	    wayland_cursor_dep,
 	    cairo_dep,
 	    pango_dep,

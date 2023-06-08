@@ -72,5 +72,8 @@ public:
 	void setTitle(const std::string& title);
 	void setStatus(const std::string& status);
 	void invalidate();
+	void replaceFont();
+	void changePadding();
+	void changeBarPos();
 	void click(Monitor* mon, int x, int y, int btn);
 };

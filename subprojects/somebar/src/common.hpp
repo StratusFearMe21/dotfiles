@@ -9,7 +9,8 @@
 #include <linux/input-event-codes.h>
 #include <cairo/cairo.h>
 #include <pango/pango.h>
-#include <giomm/settings.h>
+#include <dconf/client/dconf-client.h>
+#include <glibmm-2.4/glibmm.h>
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "net-tapesoftware-dwl-wm-unstable-v1-client-protocol.h"
 
@@ -45,7 +46,14 @@ extern wl_shm* shm;
 extern zwlr_layer_shell_v1* wlrLayerShell;
 extern int tagcount;
 extern std::vector<std::string> layoutNames;
-extern Glib::ustring font;
+extern std::string font;
+ColorScheme colorInactive;
+ColorScheme colorActive;
+int paddingX;
+int paddingY;
+bool topbar;
+DConfClient *dconf = dconf_client_new();
+
 
 void view(Monitor& m, const Arg& arg);
 void toggleview(Monitor& m, const Arg& arg);

@@ -1,6 +1,6 @@
 pkgname=dotfiles
 pkgver=1.0.1
-pkgrel=1
+pkgrel=15
 pkgdesc='All my dotfiles as one package'
 arch=('any')
 install=dotfiles.install
@@ -143,8 +143,10 @@ package() {
   cp -r ../s6-user "$pkgdir/etc"
   install -Dm755 ../s6-db-reload-user "$pkgdir/usr/bin/s6-db-reload-user"
   install -Dm755 ../wsetup "$pkgdir/etc/greetd/wsetup"
+  install -Dm755 ../spawn-shell "$pkgdir/etc/greetd/spawn-shell"
   install -Dm644 ../greetd-config.toml "$pkgdir/etc/greetd/config.dotfile.toml"
   install -Dm644 ../dwl.desktop "$pkgdir/usr/share/wayland-sessions/dwl.desktop"
+  install -Dm644 ../shell.desktop "$pkgdir/usr/share/wayland-sessions/shell.desktop"
   install -Dm644 ../doas.conf "$pkgdir/etc/doas.conf"
   install -Dm644 ../foot.ini "$pkgdir/usr/share/dotfiles/foot.ini"
   install -Dm755 ../env.nu "$pkgdir/usr/share/dotfiles/env.nu"

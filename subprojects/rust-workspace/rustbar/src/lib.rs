@@ -11,12 +11,9 @@ use std::fmt::Display;
 use std::io::BufWriter;
 use std::io::Read;
 use std::io::Write;
-use std::mem::ManuallyDrop;
 use std::mem::MaybeUninit;
-use std::ops::Deref;
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
-use std::pin::Pin;
 use std::process::Command;
 use std::ptr::NonNull;
 use std::str::FromStr;
@@ -36,7 +33,6 @@ use calloop::RegistrationToken;
 use calloop_dbus::SyncDBusSource;
 use dbus::arg::RefArg;
 use dbus::message::MatchRule;
-use dconf_sys::dconf_client_new;
 use dconf_sys::dconf_client_read;
 use dconf_sys::DConfClient;
 use glib::FromVariant;
@@ -196,14 +192,13 @@ macro_rules! match_brightness {
 }
 
 macro_rules! update_time {
-    ($is_time_updated:expr) => {
+    ($is_time_updated:expr,$servers:expr) => {
         $is_time_updated = true;
-        let mut servers = NTP_SERVERS.to_vec();
-        servers.shuffle(&mut OsRng);
+        $servers.shuffle(&mut OsRng);
         let mut args = String::new();
         args.push_str("doas ntpdate ");
-        for server in servers {
-            args.push_str(server);
+        for server in $servers {
+            args.push_str(&server);
             args.push(' ');
         }
         args.pop();
@@ -253,11 +248,18 @@ struct TimeBlock {
     now: OffsetDateTime,
     is_time_updated: bool,
     show_day: bool,
+    update_time_ntp: bool,
+    time_servers: Vec<String>,
     handles: [RegistrationToken; 2],
 }
 
 impl TimeBlock {
-    fn new<F: FnMut(Vec<u8>), G: GetSharedData<F>>(handle: &LoopHandle<G>, show_day: bool) -> Self {
+    fn new<F: FnMut(Vec<u8>), G: GetSharedData<F>>(
+        handle: &LoopHandle<G>,
+        show_day: bool,
+        update_time_ntp: bool,
+        time_servers: Vec<String>,
+    ) -> Self {
         let now_instant = Instant::now();
         let now = time::OffsetDateTime::now_utc();
         let timezone = tz::TimeZone::local().unwrap();
@@ -301,6 +303,8 @@ impl TimeBlock {
         Self {
             now,
             show_day,
+            update_time_ntp,
+            time_servers,
             is_time_updated: false,
             handles: [chld_handle, timer_handle],
         }
@@ -430,7 +434,9 @@ impl ConnmanBlock {
 
         if matches!(online, ConnmanState::Ready | ConnmanState::Online) {
             if let Some(block) = time_block {
-                update_time!(block.is_time_updated);
+                if block.update_time_ntp {
+                    update_time!(block.is_time_updated, &mut block.time_servers);
+                }
             }
         }
 
@@ -655,6 +661,7 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
         signal: LoopSignal,
         callback: F,
         handle: &LoopHandle<G>,
+        dconf: *mut DConfClient,
     ) -> Self {
         unsafe {
             let loop_handle: LoopHandle<'static, G> = std::mem::transmute(handle.clone());
@@ -670,7 +677,6 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
             let user_connection: &'static mut SyncDBusSource<()> = &mut *user_connection_ptr;
             let system_connection: &'static mut SyncDBusSource<()> = &mut *system_connection_ptr;
 
-            let dconf = dconf_client_new();
             user_connection
                 .add_match::<upower::OrgFreedesktopDBusPropertiesPropertiesChanged, _>(
                     MatchRule::new_signal("ca.desrt.dconf.Writer", "Notify"),
@@ -682,7 +688,10 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
                 time = Some(TimeBlock::new(
                     handle,
                     dconf_read_variant(dconf, "/dotfiles/somebar/time-show-day").unwrap_or(true),
-                ))
+                    dconf_read_variant(dconf, "/dotfiles/somebar/update-time-ntp").unwrap_or(true),
+                    dconf_read_variant(dconf, "/dotfiles/somebar/time-servers")
+                        .unwrap_or(NTP_SERVERS.into_iter().map(|s| s.to_string()).collect()),
+                ));
             }
 
             let mut brightness = None;
@@ -788,6 +797,21 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
                                                 "/dotfiles/somebar/time-show-day",
                                             )
                                             .unwrap_or(true),
+                                            dconf_read_variant(
+                                                dconf,
+                                                "/dotfiles/somebar/update-time-ntp",
+                                            )
+                                            .unwrap_or(true),
+                                            dconf_read_variant(
+                                                dconf,
+                                                "/dotfiles/somebar/time-servers",
+                                            )
+                                            .unwrap_or(
+                                                NTP_SERVERS
+                                                    .into_iter()
+                                                    .map(|s| s.to_string())
+                                                    .collect(),
+                                            ),
                                         ));
                                     } else {
                                         if let Some(time) =
@@ -804,6 +828,17 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
                                         time.show_day = dconf_read_variant(
                                             sd.dconf,
                                             "/dotfiles/somebar/time-show-day",
+                                        )
+                                        .unwrap_or(true);
+                                        write_bar!(shared_data);
+                                    }
+                                }
+                                "/dotfiles/somebar/update-time-ntp" => {
+                                    let sd = shared_data.get_shared_data();
+                                    if let Some(ref mut time) = sd.time {
+                                        time.update_time_ntp = dconf_read_variant(
+                                            sd.dconf,
+                                            "/dotfiles/somebar/update-time-ntp",
                                         )
                                         .unwrap_or(true);
                                         write_bar!(shared_data);
@@ -883,6 +918,36 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
                                         }
                                     }
                                     write_bar!(shared_data);
+                                }
+                                "/dotfiles/somebar/color-active"
+                                | "/dotfiles/somebar/color-inactive" => {
+                                    updateColors();
+                                    write_bar!(shared_data);
+                                }
+                                "/dotfiles/somebar/padding-x" | "/dotfiles/somebar/padding-y" => {
+                                    changePadding();
+                                    write_bar!(shared_data);
+                                }
+                                "/dotfiles/somebar/top-bar" => {
+                                    changeBarPos();
+                                    write_bar!(shared_data);
+                                }
+                                "/dotfiles/somebar/time-servers" => {
+                                    let sd = shared_data.get_shared_data();
+                                    if let Some(ref mut time) = sd.time {
+                                        time.time_servers = dconf_read_variant(
+                                            dconf,
+                                            "/dotfiles/somebar/time-servers",
+                                        )
+                                        .unwrap_or(
+                                            NTP_SERVERS
+                                                .into_iter()
+                                                .map(|s| s.to_string())
+                                                .collect(),
+                                        );
+                                        update_time!(time.is_time_updated, &mut time.time_servers);
+                                        write_bar!(shared_data);
+                                    }
                                 }
                                 _ => {}
                             }
@@ -966,8 +1031,11 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
                                         })
                                         .unwrap_or_default();
                                     if let Some(ref mut time) = shared_data.get_shared_data().time {
-                                        if !time.is_time_updated {
-                                            update_time!(time.is_time_updated);
+                                        if !time.is_time_updated && time.update_time_ntp {
+                                            update_time!(
+                                                time.is_time_updated,
+                                                &mut time.time_servers
+                                            );
                                         }
                                     }
                                 } else {
@@ -1266,6 +1334,9 @@ impl Display for ConnmanState {
 extern "C" {
     fn replaceFont();
     fn onStatus(status: *const c_char);
+    fn updateColors();
+    fn changePadding();
+    fn changeBarPos();
     fn wl_display_dispatch_pending(display: *mut c_void) -> i32;
     fn wl_display_dispatch(display: *mut c_void) -> i32;
     fn wl_display_flush(display: *mut c_void) -> i32;
@@ -1366,7 +1437,7 @@ impl<F: FnMut(Vec<u8>)> GetSharedData<F> for SharedDataTransparent<F> {
 
 #[no_mangle]
 #[cfg(not(feature = "i3bar"))]
-pub extern "C" fn init() {
+pub extern "C" fn init(dconf_client: *mut DConfClient) {
     let mut event_loop: EventLoop<_> = EventLoop::try_new().unwrap();
     let mut shared_data = SharedDataTransparent(SharedData::new(
         event_loop.get_signal(),
@@ -1375,6 +1446,7 @@ pub extern "C" fn init() {
             onStatus(string.as_ptr());
         },
         &event_loop.handle(),
+        dconf_client,
     ));
     let handle = event_loop.handle();
     insert_into_loop(&mut event_loop, &mut shared_data);

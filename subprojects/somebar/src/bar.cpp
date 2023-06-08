@@ -8,6 +8,7 @@
 #include "bar.hpp"
 #include "cairo.h"
 #include "config.hpp"
+#include "glibmm/variant.h"
 #include "pango/pango-font.h"
 #include "pango/pango-fontmap.h"
 #include "pango/pango-layout.h"
@@ -34,9 +35,14 @@ struct Font {
 
 static Font getFont()
 {
-	Glib::RefPtr<Gio::Settings> fontSetting = Gio::Settings::create("dotfiles.somebar");
-	Glib::ustring tempKey = "font";
-	font = fontSetting->get_string(tempKey);
+	GVariant *fontSettingC = dconf_client_read(dconf, "/dotfiles/somebar/font");
+	if (fontSettingC) {
+		Glib::VariantBase fontSetting = Glib::VariantBase(fontSettingC, false);
+		Glib::Variant<std::string> fontSettingVariant = Glib::VariantBase::cast_dynamic<Glib::Variant<std::string>>(fontSetting);
+		font = fontSettingVariant.get();
+	} else {
+		font = "FiraCode Nerd Font 10";
+	}
 	std::cout<<font<<std::endl;
 	auto fontMap = pango_cairo_font_map_get_default();
 	if (!fontMap) {
@@ -70,9 +76,31 @@ static Font getFont()
 }
 static Font barfont = getFont();
 
-extern "C" void replaceFont() {
+void Bar::replaceFont() {
 	barfont = getFont();
+	changePadding();
+	pango_layout_set_font_description(_layoutCmp.pangoLayout.get(), barfont.description);
+	pango_layout_set_font_description(_titleCmp.pangoLayout.get(), barfont.description);
+	pango_layout_set_font_description(_statusCmp.pangoLayout.get(), barfont.description);
+	for (int i = 0; i > _tags.size(); i++) {
+		pango_layout_set_font_description(_tags[i].component.pangoLayout.get(), barfont.description);
+	}
 }
+
+void Bar::changePadding() {
+	auto barSize = barfont.height + paddingY * 2;
+	zwlr_layer_surface_v1_set_size(_layerSurface.get(), 0, barSize);
+	zwlr_layer_surface_v1_set_exclusive_zone(_layerSurface.get(), barSize);
+	wl_surface_commit(_surface.get());
+}
+
+void Bar::changeBarPos() {
+	auto anchor = topbar ? ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP : ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM;
+	zwlr_layer_surface_v1_set_anchor(_layerSurface.get(),
+		anchor | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+	wl_surface_commit(_surface.get());
+}
+
 
 BarComponent::BarComponent() { }
 BarComponent::BarComponent(wl_unique_ptr<PangoLayout> layout)
