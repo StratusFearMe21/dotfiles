@@ -164,6 +164,8 @@ typedef struct {
 	struct wlr_box prev; /* layout-relative, includes border */
 #ifdef XWAYLAND
 	struct wl_listener activate;
+	struct wl_listener associate;
+	struct wl_listener dissociate;
 	struct wl_listener configure;
 	struct wl_listener set_hints;
 #endif
@@ -367,6 +369,7 @@ static void run();
 static void setcursor(struct wl_listener *listener, void *data);
 static void setfloating(Client *c, int floating);
 static void setfullscreen(Client *c, int fullscreen);
+static void setgamma(struct wl_listener *listener, void *data);
 static void setlayout(const Arg *arg);
 static void setmfact(const Arg *arg);
 static void setmon(Client *c, Monitor *m, uint32_t newtags);
@@ -417,6 +420,7 @@ static struct wlr_renderer *drw;
 static struct wlr_allocator *alloc;
 static struct wlr_compositor *compositor;
 static struct wlr_session *session;
+static struct wl_resource *dwl_resource;
 
 static struct wlr_xdg_shell *xdg_shell;
 static struct wlr_xdg_activation_v1 *activation;
@@ -429,6 +433,7 @@ static struct wlr_idle_inhibit_manager_v1 *idle_inhibit_mgr;
 static struct wlr_input_inhibit_manager *input_inhibit_mgr;
 static struct wlr_layer_shell_v1 *layer_shell;
 static struct wlr_output_manager_v1 *output_mgr;
+static struct wlr_gamma_control_manager_v1 *gamma_control_mgr;
 static struct wlr_virtual_keyboard_manager_v1 *virtual_keyboard_mgr;
 
 static struct wlr_cursor *cursor;
@@ -470,6 +475,7 @@ static struct wl_listener output_mgr_apply = {.notify = outputmgrapply};
 static struct wl_listener output_mgr_test = {.notify = outputmgrtest};
 static struct wl_listener request_activate = {.notify = urgent};
 static struct wl_listener request_cursor = {.notify = setcursor};
+static struct wl_listener request_gamma = {.notify = setgamma};
 static struct wl_listener request_set_psel = {.notify = setpsel};
 static struct wl_listener request_set_sel = {.notify = setsel};
 static struct wl_listener request_start_drag = {.notify = requeststartdrag};
@@ -479,8 +485,10 @@ static struct wl_listener session_lock_mgr_destroy = {.notify = destroysessionmg
 
 #ifdef XWAYLAND
 static void activatex11(struct wl_listener *listener, void *data);
+static void associatex11(struct wl_listener *listener, void *data);
 static void configurex11(struct wl_listener *listener, void *data);
 static void createnotifyx11(struct wl_listener *listener, void *data);
+static void dissociatex11(struct wl_listener *listener, void *data);
 static Atom getatom(xcb_connection_t *xc, const char *name);
 static void sethints(struct wl_listener *listener, void *data);
 static void xwaylandready(struct wl_listener *listener, void *data);
@@ -910,9 +918,9 @@ commitlayersurfacenotify(struct wl_listener *listener, void *data)
 		wlr_scene_node_reparent(&layersurface->popups->node, layers[LyrTop]);
 
 	if (wlr_layer_surface->current.committed == 0
-			&& layersurface->mapped == wlr_layer_surface->mapped)
+			&& layersurface->mapped == wlr_layer_surface->surface->mapped)
 		return;
-	layersurface->mapped = wlr_layer_surface->mapped;
+	layersurface->mapped = wlr_layer_surface->surface->mapped;
 
 	arrangelayers(layersurface->mon);
 }
@@ -1022,9 +1030,9 @@ createlayersurface(struct wl_listener *listener, void *data)
 			&layersurface->surface_commit, commitlayersurfacenotify);
 	LISTEN(&wlr_layer_surface->events.destroy, &layersurface->destroy,
 			destroylayersurfacenotify);
-	LISTEN(&wlr_layer_surface->events.map, &layersurface->map,
+	LISTEN(&wlr_layer_surface->surface->events.map, &layersurface->map,
 			maplayersurfacenotify);
-	LISTEN(&wlr_layer_surface->events.unmap, &layersurface->unmap,
+	LISTEN(&wlr_layer_surface->surface->events.unmap, &layersurface->unmap,
 			unmaplayersurfacenotify);
 
 	layersurface->layer_surface = wlr_layer_surface;
@@ -1186,8 +1194,9 @@ createnotify(struct wl_listener *listener, void *data)
 	c->surface.xdg = xdg_surface;
 	c->bw = borderpx;
 
-	LISTEN(&xdg_surface->events.map, &c->map, mapnotify);
-	LISTEN(&xdg_surface->events.unmap, &c->unmap, unmapnotify);
+	LISTEN(&xdg_surface->surface->events.commit, &c->commit, commitnotify);
+	LISTEN(&xdg_surface->surface->events.map, &c->map, mapnotify);
+	LISTEN(&xdg_surface->surface->events.unmap, &c->unmap, unmapnotify);
 	LISTEN(&xdg_surface->events.destroy, &c->destroy, destroynotify);
 	LISTEN(&xdg_surface->toplevel->events.set_title, &c->set_title, updatetitle);
 	LISTEN(&xdg_surface->toplevel->events.request_fullscreen, &c->fullscreen,
@@ -1227,7 +1236,7 @@ createpointer(struct wlr_pointer *pointer)
 
 		if (libinput_device_config_scroll_get_methods(libinput_device) != LIBINPUT_CONFIG_SCROLL_NO_SCROLL)
 			libinput_device_config_scroll_set_method (libinput_device, scroll_method);
-		
+
 		if (libinput_device_config_click_get_methods(libinput_device) != LIBINPUT_CONFIG_CLICK_METHOD_NONE)
 			libinput_device_config_click_set_method (libinput_device, click_method);
 
@@ -1333,18 +1342,23 @@ destroynotify(struct wl_listener *listener, void *data)
 {
 	/* Called when the surface is destroyed and should never be shown again. */
 	Client *c = wl_container_of(listener, c, destroy);
-	wl_list_remove(&c->map.link);
-	wl_list_remove(&c->unmap.link);
 	wl_list_remove(&c->destroy.link);
 	wl_list_remove(&c->set_title.link);
 	wl_list_remove(&c->fullscreen.link);
 #ifdef XWAYLAND
 	if (c->type != XDGShell) {
-		wl_list_remove(&c->configure.link);
-		wl_list_remove(&c->set_hints.link);
 		wl_list_remove(&c->activate.link);
-	}
+		wl_list_remove(&c->associate.link);
+		wl_list_remove(&c->configure.link);
+		wl_list_remove(&c->dissociate.link);
+		wl_list_remove(&c->set_hints.link);
+	} else
 #endif
+	{
+		wl_list_remove(&c->commit.link);
+		wl_list_remove(&c->map.link);
+		wl_list_remove(&c->unmap.link);
+	}
 	free(c);
 }
 
@@ -1708,12 +1722,7 @@ mapnotify(struct wl_listener *listener, void *data)
 	c->scene_surface = c->type == XDGShell
 			? wlr_scene_xdg_surface_create(c->scene, c->surface.xdg)
 			: wlr_scene_subsurface_tree_create(c->scene, client_surface(c));
-	if (client_surface(c)) {
-		client_surface(c)->data = c->scene;
-		/* Ideally we should do this in createnotify{,x11} but at that moment
-		* wlr_xwayland_surface doesn't have wlr_surface yet. */
-		LISTEN(&client_surface(c)->events.commit, &c->commit, commitnotify);
-	}
+	client_surface(c)->data = c->scene;
 	c->scene->node.data = c->scene_surface->node.data = c;
 
 	/* Handle unmanaged clients first so we can return prior create borders */
@@ -2109,7 +2118,6 @@ dbus_path_function(int path)
 	Keyboard *kb;
 	Client *c;
 	Monitor *m;
-	DwlWmMonitor *mon;
 	int i, j = 0;
 	double c1, c2, c3, c4;
 	
@@ -2526,9 +2534,10 @@ dbus_path_function(int path)
 				tagcount = 9;
 			}
 
-			wl_list_for_each(m, &mons, link)
-				wl_list_for_each(mon, &m->dwl_wm_monitor_link, link)
-					znet_tapesoftware_dwl_wm_v1_send_tag(mon->resource, tagcount);
+			if (dwl_resource) {
+				znet_tapesoftware_dwl_wm_v1_send_tag(dwl_resource, tagcount);
+				printstatus();
+			}
 			break;
 		case TapToClick:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/tap-to-click");
@@ -2703,6 +2712,21 @@ setfullscreen(Client *c, int fullscreen)
 	}
 	arrange(c->mon);
 	printstatus();
+}
+
+void
+setgamma(struct wl_listener *listener, void *data)
+{
+	struct wlr_gamma_control_manager_v1_set_gamma_event *event = data;
+	if (!wlr_gamma_control_v1_apply(event->control, &event->output->pending))
+		return;
+
+	if (!wlr_output_test(event->output)) {
+		wlr_output_rollback(event->output);
+		wlr_gamma_control_v1_send_failed_and_destroy(event->control);
+	}
+
+	wlr_output_schedule_frame(event->output);
 }
 
 void
@@ -3103,7 +3127,6 @@ setup(void)
 	wlr_screencopy_manager_v1_create(dpy);
 	wlr_data_control_manager_v1_create(dpy);
 	wlr_data_device_manager_create(dpy);
-	wlr_gamma_control_manager_v1_create(dpy);
 	wlr_primary_selection_v1_device_manager_create(dpy);
 	wlr_viewporter_create(dpy);
 	wlr_single_pixel_buffer_manager_v1_create(dpy);
@@ -3113,6 +3136,9 @@ setup(void)
 	/* Initializes the interface used to implement urgency hints */
 	activation = wlr_xdg_activation_v1_create(dpy);
 	wl_signal_add(&activation->events.request_activate, &request_activate);
+
+	gamma_control_mgr = wlr_gamma_control_manager_v1_create(dpy);
+	wl_signal_add(&gamma_control_mgr->events.set_gamma, &request_gamma);
 
 	/* Creates an output layout, which a wlroots utility for working with an
 	 * arrangement of screens in a physical layout. */
@@ -3418,7 +3444,6 @@ unmapnotify(struct wl_listener *listener, void *data)
 		wl_list_remove(&c->flink);
 	}
 
-	wl_list_remove(&c->commit.link);
 	wlr_scene_node_destroy(&c->scene->node);
 	printstatus();
 	motionnotify(0);
@@ -3498,7 +3523,7 @@ updatemons(struct wl_listener *listener, void *data)
 
 	if (selmon && selmon->wlr_output->enabled) {
 		wl_list_for_each(c, &clients, link)
-			if (!c->mon && client_is_mapped(c))
+			if (!c->mon && client_surface(c)->mapped)
 				setmon(c, selmon, c->tags);
 		if (selmon->lock_surface)
 			client_notify_enter(selmon->lock_surface->surface,
@@ -3633,6 +3658,16 @@ activatex11(struct wl_listener *listener, void *data)
 }
 
 void
+associatex11(struct wl_listener *listener, void *data)
+{
+	Client *c = wl_container_of(listener, c, associate);
+
+	LISTEN(&client_surface(c)->events.commit, &c->commit, commitnotify);
+	LISTEN(&client_surface(c)->events.map, &c->map, mapnotify);
+	LISTEN(&client_surface(c)->events.unmap, &c->unmap, unmapnotify);
+}
+
+void
 configurex11(struct wl_listener *listener, void *data)
 {
 	Client *c = wl_container_of(listener, c, configure);
@@ -3659,14 +3694,23 @@ createnotifyx11(struct wl_listener *listener, void *data)
 	c->bw = borderpx;
 
 	/* Listen to the various events it can emit */
-	LISTEN(&xsurface->events.map, &c->map, mapnotify);
-	LISTEN(&xsurface->events.unmap, &c->unmap, unmapnotify);
+	LISTEN(&xsurface->events.associate, &c->associate, associatex11);
+	LISTEN(&xsurface->events.dissociate, &c->dissociate, dissociatex11);
 	LISTEN(&xsurface->events.request_activate, &c->activate, activatex11);
 	LISTEN(&xsurface->events.request_configure, &c->configure, configurex11);
 	LISTEN(&xsurface->events.set_hints, &c->set_hints, sethints);
 	LISTEN(&xsurface->events.set_title, &c->set_title, updatetitle);
 	LISTEN(&xsurface->events.destroy, &c->destroy, destroynotify);
 	LISTEN(&xsurface->events.request_fullscreen, &c->fullscreen, fullscreennotify);
+}
+
+void
+dissociatex11(struct wl_listener *listener, void *data)
+{
+	Client *c = wl_container_of(listener, c, dissociate);
+	wl_list_remove(&c->commit.link);
+	wl_list_remove(&c->map.link);
+	wl_list_remove(&c->unmap.link);
 }
 
 Atom
@@ -3943,16 +3987,16 @@ static void
 dwl_wm_bind(struct wl_client *client, void *data,
 	uint32_t version, uint32_t id)
 {
-	struct wl_resource *resource = wl_resource_create(client,
+	dwl_resource = wl_resource_create(client,
 		&znet_tapesoftware_dwl_wm_v1_interface, version, id);
-	if (!resource) {
+	if (!dwl_resource) {
 		wl_client_post_no_memory(client);
 		return;
 	}
 
-	wl_resource_set_implementation(resource, &dwl_wm_implementation, NULL, dwl_wm_handle_destroy);
+	wl_resource_set_implementation(dwl_resource, &dwl_wm_implementation, NULL, dwl_wm_handle_destroy);
 
-	znet_tapesoftware_dwl_wm_v1_send_tag(resource, tagcount);
+	znet_tapesoftware_dwl_wm_v1_send_tag(dwl_resource, tagcount);
 	for (int i = 0; i < LENGTH(layouts); i++)
-		znet_tapesoftware_dwl_wm_v1_send_layout(resource, layouts[i].symbol);
+		znet_tapesoftware_dwl_wm_v1_send_layout(dwl_resource, layouts[i].symbol);
 }

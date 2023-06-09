@@ -1140,8 +1140,8 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
         }
 
         if let Some(ref media) = self.playback {
+            f.write_fmt(format_args!("{}", media.playing))?;
             if media.playing != PlaybackStatus::Stopped {
-                f.write_fmt(format_args!("{}", media.playing))?;
                 f.write_all(media.song_metadata.0.as_bytes())?;
                 f.write_all(b" - ")?;
                 f.write_all(media.song_metadata.1.as_bytes())

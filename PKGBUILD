@@ -1,6 +1,6 @@
 pkgname=dotfiles
-pkgver=1.0.1
-pkgrel=15
+pkgver=1.0.6
+pkgrel=5
 pkgdesc='All my dotfiles as one package'
 arch=('any')
 install=dotfiles.install
@@ -103,8 +103,8 @@ makedepends=(
   rust
   meson
 )
-provides=('wlroots')
-conflicts=('wlroots')
+provides=('wlroots' 'default-cursors')
+conflicts=('wlroots' 'default-cursors')
 recursion=0
 
 build() {
@@ -159,6 +159,7 @@ package() {
   install -Dm644 ../tofi-config "$pkgdir/usr/share/dotfiles/tofi-config" 
   install -Dm644 ../gtk-3.0-settings.ini "$pkgdir/usr/share/dotfiles/gtk-3.0-settings.ini"
   install -Dm644 ../dconf.ini "$pkgdir/usr/share/dotfiles/dconf.ini"
+  install -Dm644 ../index.theme "$pkgdir/usr/share/icons/default/index.theme"
   install -Dm644 ../dconf/dotfiles.somebar.gschema.xml "$pkgdir/usr/share/glib-2.0/schemas/dotfiles.somebar.gschema.xml"
   install -Dm644 ../dconf/dotfiles.dwl.gschema.xml "$pkgdir/usr/share/glib-2.0/schemas/dotfiles.dwl.gschema.xml"
   install -Dm755 ../link-dotfiles "$pkgdir/usr/share/dotfiles/link-dotfiles"

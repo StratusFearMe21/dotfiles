@@ -75,8 +75,13 @@
         <default>(0.1,0.1,0.1,1.0)</default>
       </key>
       <key name="tag-count" type="i">
-        <range min="1" max="31" />
+        <range min="1" max="18" />
         <default>9</default>
+        <summary>The number of tags you have access to</summary>
+        <description>
+          The number of tags you have access to. Changing this settings will also update the
+          status bar. You can access tags above 9 with Mod+Alt+Tag
+        </description>
       </key>
       <key name="xkb-options" type="s">
         <default>"caps:swapescape,compose:ralt"</default>

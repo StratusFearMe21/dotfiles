@@ -212,6 +212,10 @@ static const struct wl_seat_listener seatListener = {
 static const struct znet_tapesoftware_dwl_wm_v1_listener dwlWmListener = {
 	.tag = [](void*, znet_tapesoftware_dwl_wm_v1*, int count) {
 		tagcount = count;
+		for (auto &monitor : monitors) {
+			monitor.bar.updateTags();
+			monitor.bar.invalidate();
+		}
 	},
 	.layout = [](void*, znet_tapesoftware_dwl_wm_v1*, const char* name) {
 		layoutNames.push_back(name);

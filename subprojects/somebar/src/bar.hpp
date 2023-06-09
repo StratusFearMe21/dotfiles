@@ -75,5 +75,6 @@ public:
 	void replaceFont();
 	void changePadding();
 	void changeBarPos();
+	void updateTags();
 	void click(Monitor* mon, int x, int y, int btn);
 };

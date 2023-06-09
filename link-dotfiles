@@ -3,12 +3,16 @@ mkdir -p ~/.config/nushell/
 mkdir -p ~/.config/foot
 mkdir -p ~/.config/tofi
 mkdir -p ~/.config/gtk-3.0
+mkdir -p ~/.icons
 ln -sf /usr/share/dotfiles/env.nu ~/.config/nushell/env.nu
 ln -sf /usr/share/dotfiles/config.nu ~/.config/nushell/config.nu
 ln -sf /usr/share/dotfiles/foot.ini ~/.config/foot/foot.ini
 ln -sf /usr/share/dotfiles/tofi-config ~/.config/tofi/config
-ln -sf /usr/share/dotfiles/helix ~/.config/helix
 ln -sf /usr/share/dotfiles/gtk-3.0-settings.ini ~/.config/gtk-3.0/settings.ini
+rm -rf ~/.config/helix
+ln -sf /usr/share/dotfiles/helix ~/.config/helix
+rm -rf ~/.icons/default
+ln -sf /usr/share/icons/default/ ~/.icons/default
 dconf load /org/gnome/desktop/interface/ < /usr/share/dotfiles/dconf.ini
 xdg-user-dirs-update
 LIBREWOLF_DEFAULT_RELEASE=$(find ~/.librewolf -name "*.default-release")

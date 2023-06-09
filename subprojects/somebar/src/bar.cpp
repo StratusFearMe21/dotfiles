@@ -82,9 +82,7 @@ void Bar::replaceFont() {
 	pango_layout_set_font_description(_layoutCmp.pangoLayout.get(), barfont.description);
 	pango_layout_set_font_description(_titleCmp.pangoLayout.get(), barfont.description);
 	pango_layout_set_font_description(_statusCmp.pangoLayout.get(), barfont.description);
-	for (int i = 0; i > _tags.size(); i++) {
-		pango_layout_set_font_description(_tags[i].component.pangoLayout.get(), barfont.description);
-	}
+	updateTags();
 }
 
 void Bar::changePadding() {
@@ -121,15 +119,20 @@ void BarComponent::setText(const std::string& text)
 	pango_layout_set_text(pangoLayout.get(), _text->c_str(), _text->size());
 }
 
+void Bar::updateTags() {
+	_tags.clear();
+	for (int i = 1; i <= tagcount; i++) {
+		_tags.push_back({ TagState::None, 0, 0, createComponent(std::to_string(i)) });
+	}
+}
+
 Bar::Bar()
 {
 	_pangoContext.reset(pango_font_map_create_context(pango_cairo_font_map_get_default()));
 	if (!_pangoContext) {
 		die("pango_font_map_create_context");
 	}
-	for (int i = 1; i <= tagcount; i++) {
-		_tags.push_back({ TagState::None, 0, 0, createComponent(std::to_string(i)) });
-	}
+	updateTags();
 	_layoutCmp = createComponent();
 	_titleCmp = createComponent();
 	_statusCmp = createComponent();
