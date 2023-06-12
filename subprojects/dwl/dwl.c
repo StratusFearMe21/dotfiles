@@ -103,16 +103,17 @@ enum {
 	LeftHanded = 11,
 	MiddleButtonEmulation = 12,
 	Modkey = 13,
-	NaturalScrolling = 14,
-	RepeatDelay = 15,
-	RepeatRate = 16,
-	ScrollMethod = 17,
-	SendEventsMode = 18,
-	SloppyFocus = 19,
-	TagCount = 20,
-	TapToClick = 21,
-	TapToDrag = 22,
-	XkbOptions = 23,
+	MouseFollowsFocus = 14,
+	NaturalScrolling = 15,
+	RepeatDelay = 16,
+	RepeatRate = 17,
+	ScrollMethod = 18,
+	SendEventsMode = 19,
+	SloppyFocus = 20,
+	TagCount = 21,
+	TapToClick = 22,
+	TapToDrag = 23,
+	XkbOptions = 24,
 };
 #ifdef XWAYLAND
 enum { NetWMWindowTypeDialog, NetWMWindowTypeSplash, NetWMWindowTypeToolbar,
@@ -396,6 +397,7 @@ static void updatetitle(struct wl_listener *listener, void *data);
 static void urgent(struct wl_listener *listener, void *data);
 static void view(const Arg *arg);
 static void virtualkeyboard(struct wl_listener *listener, void *data);
+static void warpcursortoclient(Client *c);
 static Monitor *xytomon(double x, double y);
 static struct wlr_scene_node *xytonode(double x, double y, struct wlr_surface **psurface,
 		Client **pc, LayerSurface **pl, double *nx, double *ny);
@@ -502,6 +504,7 @@ static int wob_fd = -1;
 static enum wlr_keyboard_modifier modkey = WLR_MODIFIER_LOGO;
 
 static int sloppyfocus = 1;  /* focus follows mouse */
+static int mousefollowsfocus         = 0;  /* mouse follows focus */
 static int bypass_surface_visibility = 0;  /* 1 means idle inhibitors will disable idle tracking even if it's surface isn't visible  */
 static unsigned int borderpx = 1;  /* border pixel of windows */
 static float bordercolor[] = {0.337, 0.357, 0.078, 1.0 };
@@ -629,6 +632,8 @@ arrange(Monitor *m)
 	if (m->lt[m->sellt]->arrange)
 		m->lt[m->sellt]->arrange(m);
 	motionnotify(0);
+	
+	if (c && mousefollowsfocus) warpcursortoclient(c);
 	checkidleinhibitor(NULL);
 }
 
@@ -896,12 +901,7 @@ commitlayersurfacenotify(struct wl_listener *listener, void *data)
 
 	/* For some reason this layersurface have no monitor, this can be because
 	 * its monitor has just been destroyed */
-	if (!wlr_output) {
-		wlr_layer_surface_v1_destroy(wlr_layer_surface);
-		return;
-	}
-		
-	if (!(layersurface->mon = wlr_output->data))
+	if (!wlr_output || !(layersurface->mon = wlr_output->data))
 		return;
 
 
@@ -1021,8 +1021,10 @@ createlayersurface(struct wl_listener *listener, void *data)
 	if (!wlr_layer_surface->output)
 		wlr_layer_surface->output = selmon ? selmon->wlr_output : NULL;
 
-	if (!wlr_layer_surface->output)
+	if (!wlr_layer_surface->output) {
 		wlr_layer_surface_v1_destroy(wlr_layer_surface);
+		return;
+	}
 
 	layersurface = ecalloc(1, sizeof(LayerSurface));
 	layersurface->type = LayerShell;
@@ -1396,7 +1398,9 @@ void
 focusclient(Client *c, int lift)
 {
 	struct wlr_surface *old = seat->keyboard_state.focused_surface;
-	int i, unused_lx, unused_ly;
+	int i, unused_lx, unused_ly, old_client_type;
+	Client *old_c = NULL;
+	LayerSurface *old_l = NULL;
 
 	if (locked)
 		return;
@@ -1407,6 +1411,12 @@ focusclient(Client *c, int lift)
 
 	if (c && client_surface(c) == old)
 		return;
+
+	if ((old_client_type = toplevel_from_wlr_surface(old, &old_c, &old_l)) == XDGShell) {
+		struct wlr_xdg_popup *popup, *tmp;
+		wl_list_for_each_safe(popup, tmp, &old_c->surface.xdg->popups, link)
+			wlr_xdg_popup_destroy(popup);
+	}
 
 	/* Put the new client atop the focus stack and select its monitor */
 	if (c && !client_is_unmanaged(c)) {
@@ -1428,19 +1438,17 @@ focusclient(Client *c, int lift)
 		/* If an overlay is focused, don't focus or activate the client,
 		 * but only update its position in fstack to render its border with focuscolor
 		 * and focus it after the overlay is closed. */
-		Client *w = NULL;
-		LayerSurface *l = NULL;
-		int type = toplevel_from_wlr_surface(old, &w, &l);
-		if (type == LayerShell && wlr_scene_node_coords(&l->scene->node, &unused_lx, &unused_ly)
-				&& l->layer_surface->current.layer >= ZWLR_LAYER_SHELL_V1_LAYER_TOP) {
+		if (old_client_type == LayerShell && wlr_scene_node_coords(
+					&old_l->scene->node, &unused_lx, &unused_ly)
+				&& old_l->layer_surface->current.layer >= ZWLR_LAYER_SHELL_V1_LAYER_TOP) {
 			return;
-		} else if (w && w == exclusive_focus && client_wants_focus(w)) {
+		} else if (old_c && old_c == exclusive_focus && client_wants_focus(old_c)) {
 			return;
 		/* Don't deactivate old client if the new one wants focus, as this causes issues with winecfg
 		 * and probably other clients */
-		} else if (w && !client_is_unmanaged(w) && (!c || !client_wants_focus(c))) {
+		} else if (old_c && !client_is_unmanaged(old_c) && (!c || !client_wants_focus(c))) {
 			for (i = 0; i < 4; i++)
-				wlr_scene_rect_set_color(w->border[i], bordercolor);
+				wlr_scene_rect_set_color(old_c->border[i], bordercolor);
 
 			client_activate_surface(old, 0);
 		}
@@ -1467,11 +1475,16 @@ void
 focusmon(const Arg *arg)
 {
 	int i = 0, nmons = wl_list_length(&mons);
+	Client *c = NULL;
 	if (nmons)
 		do /* don't switch to disabled mons */
 			selmon = dirtomon(arg->i);
 		while (!selmon->wlr_output->enabled && i++ < nmons);
-	focusclient(focustop(selmon), 1);
+
+	c = focustop(selmon);
+	focusclient(c, 1);
+
+	if (mousefollowsfocus) warpcursortoclient(c);
 }
 
 void
@@ -1498,6 +1511,7 @@ focusstack(const Arg *arg)
 	}
 	/* If only one client is visible on selmon, then c == sel */
 	focusclient(c, 1);
+	if (mousefollowsfocus) warpcursortoclient(c);
 }
 
 /* We probably should change the name of this, it sounds like
@@ -2056,8 +2070,8 @@ rendermon(struct wl_listener *listener, void *data)
 	wl_list_for_each(c, &clients, link)
 		if (c->resize && !c->isfloating && client_is_rendered_on_mon(c, m) && !client_is_stopped(c))
 			goto skip;
-	if (!wlr_scene_output_commit(m->scene_output))
-		return;
+	wlr_scene_output_commit(m->scene_output);
+
 skip:
 	/* Let clients know a frame has been rendered */
 	clock_gettime(CLOCK_MONOTONIC, &now);
@@ -2406,6 +2420,17 @@ dbus_path_function(int path)
 				g_variant_unref(temp);
 			} else {
 				modkey = WLR_MODIFIER_LOGO;
+			}
+
+			break;
+		case MouseFollowsFocus:
+			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/mouse-follows-focus");
+
+			if (temp) {
+				mousefollowsfocus = g_variant_get_boolean(temp);
+				g_variant_unref(temp);
+			} else {
+				mousefollowsfocus = 0;
 			}
 
 			break;
@@ -2960,6 +2985,13 @@ config(void)
 		g_variant_unref(temp);
 	}
 
+	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/mouse-follows-focus");
+
+	if (temp) {
+		mousefollowsfocus = g_variant_get_boolean(temp);
+		g_variant_unref(temp);
+	}
+
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/natural-scrolling");
 
 	if (temp) {
@@ -3199,6 +3231,7 @@ setup(void)
 	 * images are available at all scale factors on the screen (necessary for
 	 * HiDPI support). Scaled cursors will be loaded with each output. */
 	cursor_mgr = wlr_xcursor_manager_create(NULL, 24);
+	setenv("XCURSOR_SIZE", "24", 1);
 
 	/*
 	 * wlr_cursor *only* displays an image on screen. It does not move around
@@ -3525,9 +3558,12 @@ updatemons(struct wl_listener *listener, void *data)
 		wl_list_for_each(c, &clients, link)
 			if (!c->mon && client_surface(c)->mapped)
 				setmon(c, selmon, c->tags);
-		if (selmon->lock_surface)
+		focusclient(focustop(selmon), 1);
+		if (selmon->lock_surface) {
 			client_notify_enter(selmon->lock_surface->surface,
 					wlr_seat_get_keyboard(seat));
+			client_activate_surface(selmon->lock_surface->surface, 1);
+		}
 	}
 
 	wlr_output_manager_v1_set_configuration(output_mgr, config);
@@ -3571,6 +3607,16 @@ virtualkeyboard(struct wl_listener *listener, void *data)
 {
 	struct wlr_virtual_keyboard_v1 *keyboard = data;
 	createkeyboard(&keyboard->keyboard);
+}
+
+void
+warpcursortoclient(Client *c) {
+	struct wlr_box mg = c->mon->m;
+	struct wlr_box cg = c->geom;
+	if (!VISIBLEON(c, selmon)) return;
+	wlr_cursor_warp_absolute(cursor, NULL,
+		((double)cg.x + (double)cg.width / 2.0) / (double)mg.width,
+		((double)cg.y + (double)cg.height / 2.0) / (double)mg.height);
 }
 
 Monitor *

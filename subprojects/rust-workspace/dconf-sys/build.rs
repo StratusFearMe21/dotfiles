@@ -32,5 +32,5 @@ fn main() {
         .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");
 
-    println!("cargo:rustc-link-lib=gio-2.0");
+    println!("cargo:rustc-link-lib=dconf");
 }

@@ -1,3 +1,0 @@
-#!/bin/execlineb -P
-fdmove -c 2 1
-exec /usr/lib/mate-polkit/polkit-mate-authentication-agent-1

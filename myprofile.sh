@@ -5,6 +5,7 @@ export SDL_AUDIODRIVER=pipewire
 export MOZ_ENABLE_WAYLAND=1
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/dbus-session
 export XCURSOR_THEME=Bibata-Modern-Classic
+export XCURSOR_PATH=/usr/share/icons:$HOME/.icons:$HOME/.local/share/icons
 export CC=clang
 export CXX=clang++
 export CC_LD=mold
@@ -14,4 +15,5 @@ export AR=llvm-ar
 export WAYLAND_DISPLAY=wayland-0
 export DISPLAY=:0
 export XDG_CURRENT_DESKTOP=wlroots
+export QT_QPA_PLATFORMTHEME=qt5ct
 [ -f $HOME/.config/user-dirs.dirs ] && . $HOME/.config/user-dirs.dirs

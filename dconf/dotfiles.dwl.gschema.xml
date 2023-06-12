@@ -134,5 +134,12 @@
       <key name="modkey" enum="dotfiles.dwl.Modifier">
         <default>'Logo'</default>
       </key>
+      <key name="mouse-follows-focus" type="b">
+        <default>false</default>
+        <summary>Mouse cursor will move to a window when it is focused</summary>
+        <description>
+          The mouse cursor will move to the center of any window that gains focus
+        </description>
+      </key>
     </schema>
 </schemalist>

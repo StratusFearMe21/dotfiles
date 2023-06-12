@@ -8,6 +8,6 @@
 }
 
 ifelse { test -w /tmp/${USER}/log } {
-    foreground { mkdir -p /tmp/${USER}/log/mate-polkit }
-    exec -c s6-log -d3 -b -- ${DIRECTIVES} /tmp/${USER}/log/mate-polkit
+    foreground { mkdir -p /tmp/${USER}/log/cosmic-osd }
+    exec -c s6-log -d3 -b -- ${DIRECTIVES} /tmp/${USER}/log/cosmic-osd
 }

@@ -4,7 +4,6 @@ use std::ffi::c_char;
 #[cfg(not(feature = "i3bar"))]
 use std::ffi::c_int;
 use std::ffi::c_void;
-#[cfg(not(feature = "i3bar"))]
 use std::ffi::CString;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -384,6 +383,7 @@ impl PlaybackBlock {
         Self {
             playing,
             song_metadata,
+            #[cfg(not(feature = "i3bar"))]
             ping_handle,
             match_token,
         }
@@ -394,6 +394,7 @@ impl PlaybackBlock {
         user_connection: &calloop_dbus::SyncDBusSource<()>,
         handle: &LoopHandle<G>,
     ) {
+        #[cfg(not(feature = "i3bar"))]
         handle.remove(self.ping_handle);
         user_connection.remove_match(self.match_token).unwrap();
     }
@@ -779,6 +780,7 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
                             let mut new_prop = property.prefix.clone();
                             new_prop.push_str(&p);
                             match new_prop.as_str() {
+                                #[cfg(not(feature = "i3bar"))]
                                 "/dotfiles/somebar/font" => {
                                     replaceFont();
                                     write_bar!(shared_data);
@@ -919,15 +921,18 @@ impl<F: FnMut(Vec<u8>)> SharedData<F> {
                                     }
                                     write_bar!(shared_data);
                                 }
+                                #[cfg(not(feature = "i3bar"))]
                                 "/dotfiles/somebar/color-active"
                                 | "/dotfiles/somebar/color-inactive" => {
                                     updateColors();
                                     write_bar!(shared_data);
                                 }
+                                #[cfg(not(feature = "i3bar"))]
                                 "/dotfiles/somebar/padding-x" | "/dotfiles/somebar/padding-y" => {
                                     changePadding();
                                     write_bar!(shared_data);
                                 }
+                                #[cfg(not(feature = "i3bar"))]
                                 "/dotfiles/somebar/top-bar" => {
                                     changeBarPos();
                                     write_bar!(shared_data);

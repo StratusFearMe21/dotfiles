@@ -1,6 +1,6 @@
 pkgname=dotfiles
-pkgver=1.0.6
-pkgrel=5
+pkgver=1.1.9
+pkgrel=1
 pkgdesc='All my dotfiles as one package'
 arch=('any')
 install=dotfiles.install
@@ -72,7 +72,7 @@ depends=(
   grim
   opendoas
   gvfs
-  mate-polkit
+  polkit
   pipewire
   pipewire-pulse
   wireplumber
@@ -95,6 +95,7 @@ depends=(
   bibata-cursor-theme
   materia-gtk-theme
   papirus-icon-theme
+  qt5ct
 )
 makedepends=(
   mold
