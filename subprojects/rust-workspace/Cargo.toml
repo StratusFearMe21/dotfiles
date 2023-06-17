@@ -1,8 +1,11 @@
 [workspace]
-members = ["listenbrainz-mpv", "rustbar", "tuigreet", "dconf-sys", "calloop-dbus", "dbus-dwl", "cosmic-osd"]
+members = ["listenbrainz-mpv", "rustbar", "tuigreet", "dconf-sys", "calloop-dbus", "dbus-dwl", "cosmic-osd", "iced"]
 
 [profile.release]
 lto = true
 strip = true
 codegen-units = 1
 panic = "abort"
+
+[profile.dev]
+incremental = false

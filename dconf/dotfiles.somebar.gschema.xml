@@ -2,7 +2,7 @@
 <schemalist>
     <schema id="dotfiles.somebar" path="/dotfiles/somebar/">
       <key name="font" type="s">
-        <default>"FiraCode Nerd Font 10"</default>
+        <default>"FiraCode Nerd Font 14"</default>
         <summary>Status bar font</summary>
         <description>
           The font that the status bar will use. Should be monospace and a Nerd font
@@ -88,11 +88,11 @@
           time-block is also enabled. These servers must use the NTP protocol.
         </description>
       </key>
-      <key name="padding-x" type="i">
-        <default>10</default>
+      <key name="padding-x" type="d">
+        <default>10.0</default>
       </key>
-      <key name="padding-y" type="i">
-        <default>3</default>
+      <key name="padding-y" type="d">
+        <default>5.0</default>
       </key>
       <key name="top-bar" type="b">
         <default>true</default>

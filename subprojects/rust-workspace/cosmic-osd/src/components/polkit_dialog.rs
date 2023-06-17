@@ -14,7 +14,7 @@ use iced::{
     Command, Element, Subscription,
 };
 use iced_sctk::commands::layer_surface::{destroy_layer_surface, get_layer_surface};
-use iced_sctk::core::renderer::BorderRadius;
+use iced_sctk::core::BorderRadius;
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 
@@ -149,9 +149,9 @@ impl State {
             password_input = password_input.password();
         }
         widget::container::Container::new(widget::row![widget::column![
-            widget::Svg::new(svg::Handle::from_memory(
-                include_bytes!("dialog-authentication.svg").as_ref(),
-            )),
+            widget::Svg::new(svg::Handle::from_memory(AsRef::<[u8]>::as_ref(
+                include_bytes!("dialog-authentication.svg")
+            ))),
             widget::column![
                 widget::text("Authentication Required"),
                 widget::text(&self.params.message),
