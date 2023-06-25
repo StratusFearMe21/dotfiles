@@ -514,7 +514,7 @@ impl SharedData {
                                         shared_data.dconf,
                                         "/dotfiles/somebar/bar-show-time",
                                     )
-                                    .unwrap_or(400);
+                                    .unwrap_or(500);
                                 }
                                 _ => {}
                             }
@@ -871,7 +871,7 @@ impl BarSettings {
             padding_y: dconf_read_variant::<f64>(dconf, "/dotfiles/somebar/padding-y")
                 .unwrap_or(5.0) as f32,
             bar_show_time: dconf_read_variant(dconf, "/dotfiles/somebar/bar-show-time")
-                .unwrap_or(400),
+                .unwrap_or(500),
             top_bar: dconf_read_variant(dconf, "/dotfiles/somebar/top-bar").unwrap_or(true),
         }
     }

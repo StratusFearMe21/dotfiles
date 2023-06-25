@@ -102,7 +102,7 @@
         </description>
       </key>
       <key name="bar-show-time" type="t">
-        <default>400</default>
+        <default>500</default>
         <summary>How long to show the bar when the volume or brightness button is pressed</summary>
         <description>
           How long to show the bar when it is shown instead of the status bar.
