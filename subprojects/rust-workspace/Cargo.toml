@@ -1,5 +1,13 @@
 [workspace]
-members = ["listenbrainz-mpv", "rustbar", "tuigreet", "dconf-sys", "calloop-dbus", "dbus-dwl", "cosmic-osd", "iced"]
+members = [
+  "listenbrainz-mpv",
+  "rustbar",
+  "tuigreet",
+  "dconf-sys",
+  "calloop-dbus",
+  "dbus-dwl",
+  "cosmic-osd",
+]
 
 [profile.release]
 lto = true

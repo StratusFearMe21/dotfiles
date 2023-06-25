@@ -4,7 +4,7 @@ use iced_tiny_skia::{
     core::{
         alignment::{Horizontal, Vertical},
         text::{LineHeight, Shaping},
-        Color, Rectangle, Size,
+        Color, Rectangle,
     },
     graphics::{backend::Text, Primitive},
 };
@@ -35,7 +35,7 @@ pub struct Tags {
     pub tag_windows: Arc<Primitive>,
     pub tags: Vec<Tag>,
     pub width: f32,
-    num_width: f32,
+    pub num_width: f32,
 }
 
 impl Default for Tags {

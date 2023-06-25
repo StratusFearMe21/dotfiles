@@ -25,6 +25,14 @@
     </copyright>
 
     <interface name="znet_tapesoftware_dwl_wm_v1" version="1">
+        <enum name="wob_command">
+            <entry name="volume_up" value="0" summary=""/>
+            <entry name="volume_down" value="1" summary=""/>
+            <entry name="light_up" value="2" summary=""/>
+            <entry name="light_down" value="3" summary=""/>
+            <entry name="launch_app" value="4" summary=""/>
+        </enum>
+
         <description summary="control the dwl state">
             This interface is exposed as a global in the wl_registry.
 
@@ -61,6 +69,13 @@
                 A roundtrip after binding guarantees that the client has received all tags.
             </description>
             <arg name="count" type="int"/>
+        </event>
+
+        <event name="exec_wob_command">
+            <description summary="display this in the bar now">
+                Execute the command and display it's output in the status bar
+            </description>
+            <arg name="command" type="uint" enum="wob_command"/>
         </event>
 
         <event name="layout">

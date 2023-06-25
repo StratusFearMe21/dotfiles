@@ -9,9 +9,10 @@ use std::{
 use rand::{rngs::OsRng, seq::SliceRandom};
 use smithay_client_toolkit::reexports::{
     calloop::{
-        signals::{Signal, Signals},
+        // signals::{Signal, Signals},
         timer::{TimeoutAction, Timer},
-        LoopHandle, RegistrationToken,
+        LoopHandle,
+        RegistrationToken,
     },
     client::QueueHandle,
 };
@@ -122,7 +123,7 @@ pub struct TimeBlock {
     pub time_servers: Vec<String>,
     pub now: OffsetDateTime,
     pub show_day: bool,
-    handles: [RegistrationToken; 2],
+    handle: RegistrationToken,
 }
 
 impl TimeBlock {
@@ -139,6 +140,7 @@ impl TimeBlock {
         let time_offset = timezone.find_current_local_time_type().unwrap().ut_offset();
         let now = now.to_offset(UtcOffset::from_whole_seconds(time_offset).unwrap());
         let timer_start = now_instant + Duration::from_secs(60 - now.second() as u64);
+        /*
         // The only child process we spawn is ntpdate ever
         let chld_qh = Rc::clone(&qh);
         let chld_handle = handle
@@ -154,7 +156,8 @@ impl TimeBlock {
                 },
             )
             .unwrap();
-        let timer_handle = handle
+        */
+        let handle = handle
             .insert_source(
                 Timer::from_deadline(timer_start),
                 move |_event, _metadata, shared_data| unsafe {
@@ -172,14 +175,12 @@ impl TimeBlock {
             update_time_ntp,
             time_servers,
             is_time_updated: false,
-            handles: [chld_handle, timer_handle],
+            handle,
         }
     }
 
     pub fn unregister(&self, handle: &LoopHandle<SimpleLayer>) {
-        for h in self.handles {
-            handle.remove(h);
-        }
+        handle.remove(self.handle);
     }
 
     pub fn fmt(&self, f: &mut String) {

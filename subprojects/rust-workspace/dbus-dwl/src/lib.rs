@@ -1,5 +1,7 @@
 //
-use std::{ffi::c_int, time::Duration};
+use std::{
+    ffi::c_int, fmt::Display, io::Write, mem::ManuallyDrop, os::fd::FromRawFd, time::Duration,
+};
 
 const FST: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/fst.fst"));
 

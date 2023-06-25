@@ -1,5 +1,4 @@
 project('dotfiles')
 subproject('dwl')
-subproject('wob')
 subproject('cat_sock')
 subproject('isdirempty')

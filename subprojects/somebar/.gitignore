@@ -1,5 +1,0 @@
-compile_commands.json
-build
-.cache
-src/config.hpp
-target/

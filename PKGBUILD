@@ -1,6 +1,6 @@
 pkgname=dotfiles
-pkgver=1.1.10
-pkgrel=33
+pkgver=1.2.0
+pkgrel=14
 pkgdesc='All my dotfiles as one package'
 arch=('any')
 install=dotfiles.install
@@ -84,7 +84,6 @@ depends=(
   ttf-firacode-nerd
   arkenfox-user.js
   doas-sudo-shim
-  tofi
   xdg-user-dirs
   execline
   ntp
@@ -157,7 +156,6 @@ package() {
   cp -r ../helix "$pkgdir/usr/share/dotfiles"
   cp -r ../pipewire "$pkgdir/etc"
   install -Dm644 ../user-overrides.js "$pkgdir/usr/share/dotfiles/user-overrides.js"
-  install -Dm644 ../tofi-config "$pkgdir/usr/share/dotfiles/tofi-config" 
   install -Dm644 ../gtk-3.0-settings.ini "$pkgdir/usr/share/dotfiles/gtk-3.0-settings.ini"
   install -Dm644 ../dconf.ini "$pkgdir/usr/share/dotfiles/dconf.ini"
   install -Dm644 ../index.theme "$pkgdir/usr/share/icons/default/index.theme"

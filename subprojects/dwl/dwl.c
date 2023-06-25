@@ -120,11 +120,13 @@ enum { NetWMWindowTypeDialog, NetWMWindowTypeSplash, NetWMWindowTypeToolbar,
 	NetWMWindowTypeUtility, NetLast }; /* EWMH atoms */
 #endif
 
+
 typedef union {
 	int i;
 	uint32_t ui;
 	float f;
 	const void *v;
+	enum znet_tapesoftware_dwl_wm_v1_wob_command w;
 } Arg;
 
 typedef struct {
@@ -500,7 +502,6 @@ static struct wlr_xwayland *xwayland;
 static Atom netatom[NetLast];
 #endif
 
-static int wob_fd = -1;
 static enum wlr_keyboard_modifier modkey = WLR_MODIFIER_LOGO;
 
 static int sloppyfocus = 1;  /* focus follows mouse */
@@ -680,6 +681,7 @@ arrangelayers(Monitor *m)
 		arrange(m);
 	}
 
+	exclusive_focus = NULL;
 	/* Arrange non-exlusive surfaces from top->bottom */
 	for (i = 3; i >= 0; i--)
 		arrangelayer(m, &m->layers[i], &usable_area, 0);
@@ -3297,15 +3299,7 @@ setup(void)
 void
 wob(const Arg *arg)
 {
-	if (wob_fd < 0)
-		wob_fd = open("/tmp/wob", O_WRONLY);
-	if (wob_fd > 0 && fork() == 0) {
-		close(STDOUT_FILENO);
-		dup(wob_fd);
-		setsid();
-		execvp(((char **)arg->v)[0], (char **)arg->v);
-		die("dwl: wob execvp %s failed:", ((char **)arg->v)[0]);
-	}	
+	znet_tapesoftware_dwl_wm_v1_send_exec_wob_command(dwl_resource, arg->w);
 }
 
 void
