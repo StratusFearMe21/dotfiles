@@ -34,11 +34,9 @@
 #include <wlr/types/wlr_export_dmabuf_v1.h>
 #include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_gamma_control_v1.h>
-#include <wlr/types/wlr_idle.h>
 #include <wlr/types/wlr_idle_inhibit_v1.h>
 #include <wlr/types/wlr_idle_notify_v1.h>
 #include <wlr/types/wlr_input_device.h>
-#include <wlr/types/wlr_input_inhibitor.h>
 #include <wlr/types/wlr_keyboard.h>
 #include <wlr/types/wlr_switch.h>
 #include <wlr/types/wlr_layer_shell_v1.h>
@@ -63,6 +61,7 @@
 #include <wlr/types/wlr_xdg_decoration_v1.h>
 #include <wlr/types/wlr_xdg_output_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
+#include <wlr/types/wlr_cursor_shape_v1.h>
 #include <wlr/util/log.h>
 #include <xkbcommon/xkbcommon.h>
 #include "dbus/dbus-shared.h"
@@ -82,7 +81,6 @@
 #define END(A)                  ((A) + LENGTH(A))
 #define TAGMASK                 ((1u << tagcount) - 1)
 #define LISTEN(E, L, H)         wl_signal_add((E), ((L)->notify = (H), (L)))
-#define IDLE_NOTIFY_ACTIVITY    wlr_idle_notify_activity(idle, seat), wlr_idle_notifier_v1_notify_activity(idle_notifier, seat)
 
 /* enums */
 enum { CurNormal, CurPressed, CurMove, CurResize }; /* cursor */
@@ -355,6 +353,7 @@ static void monocle(Monitor *m);
 static void motionabsolute(struct wl_listener *listener, void *data);
 static void motionnotify(uint32_t time);
 static void motionrelative(struct wl_listener *listener, void *data);
+static void cursorshapechange(struct wl_listener *listener, void *data);
 static void moveresize(const Arg *arg);
 static void outputmgrapply(struct wl_listener *listener, void *data);
 static void outputmgrapplyortest(struct wlr_output_configuration_v1 *config, int test);
@@ -413,7 +412,7 @@ extern void process_dbus(void *data, void (*func)(int));
 
 /* variables */
 static const char broken[] = "broken";
-static const char *cursor_image = "left_ptr";
+static pid_t child_pid = -1;
 static int locked;
 static void *exclusive_focus;
 static struct wl_display *dpy;
@@ -431,10 +430,9 @@ static struct wlr_xdg_activation_v1 *activation;
 static struct wlr_xdg_decoration_manager_v1 *xdg_decoration_mgr;
 static struct wl_list clients; /* tiling order */
 static struct wl_list fstack;  /* focus order */
-static struct wlr_idle *idle;
 static struct wlr_idle_notifier_v1 *idle_notifier;
+static struct wlr_cursor_shape_manager_v1 *cursor_shape_manager;
 static struct wlr_idle_inhibit_manager_v1 *idle_inhibit_mgr;
-static struct wlr_input_inhibit_manager *input_inhibit_mgr;
 static struct wlr_layer_shell_v1 *layer_shell;
 static struct wlr_output_manager_v1 *output_mgr;
 static struct wlr_gamma_control_manager_v1 *gamma_control_mgr;
@@ -464,6 +462,7 @@ static struct wl_listener cursor_axis = {.notify = axisnotify};
 static struct wl_listener cursor_button = {.notify = buttonpress};
 static struct wl_listener cursor_frame = {.notify = cursorframe};
 static struct wl_listener cursor_motion = {.notify = motionrelative};
+static struct wl_listener cursor_shape_change = {.notify = cursorshapechange};
 static struct wl_listener cursor_motion_absolute = {.notify = motionabsolute};
 static struct wl_listener drag_icon_destroy = {.notify = destroydragicon};
 static struct wl_listener idle_inhibitor_create = {.notify = createidleinhibitor};
@@ -708,7 +707,7 @@ axisnotify(struct wl_listener *listener, void *data)
 	/* This event is forwarded by the cursor when a pointer emits an axis event,
 	 * for example when you move the scroll wheel. */
 	struct wlr_pointer_axis_event *event = data;
-	IDLE_NOTIFY_ACTIVITY;
+	wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
 	/* TODO: allow usage of scroll whell for mousebindings, it can be implemented
 	 * checking the event's orientation and the delta of the event */
 	/* Notify the client with pointer focus of the axis event. */
@@ -726,7 +725,7 @@ buttonpress(struct wl_listener *listener, void *data)
 	Client *c;
 	const Button *b;
 
-	IDLE_NOTIFY_ACTIVITY;
+	wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
 
 	switch (event->state) {
 	case WLR_BUTTON_PRESSED:
@@ -751,13 +750,10 @@ buttonpress(struct wl_listener *listener, void *data)
 		break;
 	case WLR_BUTTON_RELEASED:
 		/* If you released any buttons, we exit interactive move/resize mode. */
+		/* TODO should reset to the pointer focus's current setcursor */
 		if (!locked && cursor_mode != CurNormal && cursor_mode != CurPressed) {
+			wlr_cursor_set_xcursor(cursor, cursor_mgr, "left_ptr");
 			cursor_mode = CurNormal;
-			/* Clear the pointer focus, this way if the cursor is over a surface
-			 * we will send an enter event after which the client will provide us
-			 * a cursor surface */
-			wlr_seat_pointer_clear_focus(seat);
-			motionnotify(0);
 			/* Drop the window off on its new monitor */
 			selmon = xytomon(cursor->x, cursor->y);
 			setmon(grabc, selmon, 0);
@@ -795,7 +791,6 @@ checkidleinhibitor(struct wlr_surface *exclude)
 		}
 	}
 
-	wlr_idle_set_enabled(idle, NULL, !inhibited);
 	wlr_idle_notifier_v1_set_inhibited(idle_notifier, inhibited);
 }
 
@@ -1106,7 +1101,6 @@ createmon(struct wl_listener *listener, void *data)
 			m->mfact = r->mfact;
 			m->nmaster = r->nmaster;
 			wlr_output_set_scale(wlr_output, r->scale);
-			wlr_xcursor_manager_load(cursor_mgr, r->scale);
 			m->lt[0] = m->lt[1] = r->lt;
 			wlr_output_set_transform(wlr_output, r->rr);
 			m->m.x = r->x;
@@ -1621,12 +1615,11 @@ keypress(struct wl_listener *listener, void *data)
 	int handled = 0;
 	uint32_t mods = wlr_keyboard_get_modifiers(kb->wlr_keyboard);
 
-	IDLE_NOTIFY_ACTIVITY;
+	wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
 
 	/* On _press_ if there is no active screen locker,
 	 * attempt to process a compositor keybinding. */
-	if (!locked && !input_inhibit_mgr->active_inhibitor
-			&& event->state == WL_KEYBOARD_KEY_STATE_PRESSED)
+	if (!locked && event->state == WL_KEYBOARD_KEY_STATE_PRESSED)
 		for (i = 0; i < nsyms; i++)
 			handled = keybinding(mods, syms[i]) || handled;
 
@@ -1847,7 +1840,7 @@ motionnotify(uint32_t time)
 
 	/* time is 0 in internal calls meant to restore pointer focus. */
 	if (time) {
-		IDLE_NOTIFY_ACTIVITY;
+		wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
 
 		/* Update selmon (even while dragging a window) */
 		if (sloppyfocus)
@@ -1886,8 +1879,8 @@ motionnotify(uint32_t time)
 	/* If there's no client surface under the cursor, set the cursor image to a
 	 * default. This is what makes the cursor image appear when you move it
 	 * off of a client or over its border. */
-	if (!surface && !seat->drag && (!cursor_image || strcmp(cursor_image, "left_ptr")))
-		wlr_xcursor_manager_set_cursor_image(cursor_mgr, (cursor_image = "left_ptr"), cursor);
+	if (!surface && !seat->drag)
+		wlr_cursor_set_xcursor(cursor, cursor_mgr, "left_ptr");
 
 	pointerfocus(c, surface, sx, sy, time);
 }
@@ -1908,6 +1901,13 @@ motionrelative(struct wl_listener *listener, void *data)
 }
 
 void
+cursorshapechange(struct wl_listener *listener, void *data)
+{
+	struct wlr_cursor_shape_manager_v1_request_set_shape_event *event = data;
+			wlr_cursor_set_xcursor(cursor, cursor_mgr, wlr_cursor_shape_v1_name(event->shape));
+}
+
+void
 moveresize(const Arg *arg)
 {
 	if (cursor_mode != CurNormal && cursor_mode != CurPressed)
@@ -1922,7 +1922,7 @@ moveresize(const Arg *arg)
 	case CurMove:
 		grabcx = cursor->x - grabc->geom.x;
 		grabcy = cursor->y - grabc->geom.y;
-		wlr_xcursor_manager_set_cursor_image(cursor_mgr, (cursor_image = "fleur"), cursor);
+		wlr_cursor_set_xcursor(cursor, cursor_mgr, "fleur");
 		break;
 	case CurResize:
 		/* Doesn't work for X11 output - the next absolute motion event
@@ -1930,8 +1930,7 @@ moveresize(const Arg *arg)
 		wlr_cursor_warp_closest(cursor, NULL,
 				grabc->geom.x + grabc->geom.width,
 				grabc->geom.y + grabc->geom.height);
-		wlr_xcursor_manager_set_cursor_image(cursor_mgr,
-				(cursor_image = "bottom_right_corner"), cursor);
+		wlr_cursor_set_xcursor(cursor, cursor_mgr, "bottom_right_corner");
 		break;
 	}
 }
@@ -2032,6 +2031,7 @@ pointerfocus(Client *c, struct wlr_surface *surface, double sx, double sy,
 	 * wlroots makes this a no-op if surface is already focused */
 	wlr_seat_pointer_notify_enter(seat, surface, sx, sy);
 	wlr_seat_pointer_notify_motion(seat, time, sx, sy);
+
 }
 
 void 
@@ -2666,7 +2666,7 @@ run()
 	 * initialized, as the image/coordinates are not transformed for the
 	 * monitor when displayed here */
 	wlr_cursor_warp_closest(cursor, NULL, cursor->x, cursor->y);
-	wlr_xcursor_manager_set_cursor_image(cursor_mgr, cursor_image, cursor);
+	wlr_cursor_set_xcursor(cursor, cursor_mgr, "left_ptr");
 
 	dbus_watch = get_fd();
 
@@ -2698,7 +2698,6 @@ setcursor(struct wl_listener *listener, void *data)
 	 * event, which will result in the client requesting set the cursor surface */
 	if (cursor_mode != CurNormal && cursor_mode != CurPressed)
 		return;
-	cursor_image = NULL;
 	/* This can be sent by any client, so we check to make sure this one is
 	 * actually has pointer focus first. If so, we can tell the cursor to
 	 * use the provided surface as the cursor image. It will set the
@@ -2745,15 +2744,26 @@ void
 setgamma(struct wl_listener *listener, void *data)
 {
 	struct wlr_gamma_control_manager_v1_set_gamma_event *event = data;
-	if (!wlr_gamma_control_v1_apply(event->control, &event->output->pending))
+	Monitor *m = event->output->data;
+	struct wlr_output_state pending = {0};
+	if (!m)
 		return;
 
-	if (!wlr_output_test(event->output)) {
-		wlr_output_rollback(event->output);
+	if (!wlr_scene_output_build_state(m->scene_output, &pending))
+		return;
+
+	if (!wlr_gamma_control_v1_apply(event->control, &pending))
+		goto out;
+
+	if (!wlr_output_commit_state(m->wlr_output, &pending)) {
 		wlr_gamma_control_v1_send_failed_and_destroy(event->control);
+		goto out;
 	}
 
-	wlr_output_schedule_frame(event->output);
+	wlr_damage_ring_rotate(&m->scene_output->damage_ring);
+
+out:
+	wlr_output_state_finish(&pending);
 }
 
 void
@@ -3194,8 +3204,8 @@ setup(void)
 	wl_list_init(&clients);
 	wl_list_init(&fstack);
 
-	idle = wlr_idle_create(dpy);
 	idle_notifier = wlr_idle_notifier_v1_create(dpy);
+	cursor_shape_manager = wlr_cursor_shape_manager_v1_create(dpy, 1);
 
 	idle_inhibit_mgr = wlr_idle_inhibit_v1_create(dpy);
 	wl_signal_add(&idle_inhibit_mgr->events.new_inhibitor, &idle_inhibitor_create);
@@ -3206,7 +3216,6 @@ setup(void)
 	xdg_shell = wlr_xdg_shell_create(dpy, 4);
 	wl_signal_add(&xdg_shell->events.new_surface, &new_xdg_surface);
 
-	input_inhibit_mgr = wlr_input_inhibit_manager_create(dpy);
 	session_lock_mgr = wlr_session_lock_manager_v1_create(dpy);
 	wl_signal_add(&session_lock_mgr->events.new_lock, &session_lock_create_lock);
 	wl_signal_add(&session_lock_mgr->events.destroy, &session_lock_mgr_destroy);
@@ -3251,6 +3260,7 @@ setup(void)
 	wl_signal_add(&cursor->events.motion_absolute, &cursor_motion_absolute);
 	wl_signal_add(&cursor->events.button, &cursor_button);
 	wl_signal_add(&cursor->events.axis, &cursor_axis);
+	wl_signal_add(&cursor_shape_manager->events.request_set_shape, &cursor_shape_change);
 	wl_signal_add(&cursor->events.frame, &cursor_frame);
 
 	/*

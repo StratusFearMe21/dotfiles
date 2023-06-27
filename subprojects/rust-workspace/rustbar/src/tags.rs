@@ -4,7 +4,7 @@ use iced_tiny_skia::{
     core::{
         alignment::{Horizontal, Vertical},
         text::{LineHeight, Shaping},
-        Color, Rectangle,
+        Background, Color, Rectangle,
     },
     graphics::{backend::Text, Primitive},
 };
@@ -99,28 +99,10 @@ impl Tags {
         color_active: (Color, Color),
         bar_size: f32,
     ) {
-        let stroke = Stroke {
-            width: bar_size,
-            ..Default::default()
-        };
+        let mut primitives = Vec::new();
 
-        let paint = Paint {
-            shader: Shader::SolidColor(
-                tiny_skia::Color::from_rgba(
-                    color_inactive.1.b,
-                    color_inactive.1.g,
-                    color_inactive.1.r,
-                    1.0,
-                )
-                .unwrap(),
-            ),
-            ..Default::default()
-        };
-
-        let mut path = PathBuilder::new();
-        path.move_to(0.0, (bar_size / 2.0) + 0.0001);
-
-        let mut x = 0.0;
+        let mut x1 = 0.0;
+        let mut x2 = 0.0;
         let mut in_selection = false;
         for (tag, primitive) in self
             .tags
@@ -133,9 +115,21 @@ impl Tags {
             if matches!(tag.state, TagState::Active | TagState::Urgent) {
                 if !in_selection {
                     in_selection = true;
-                    path.line_to(x, bar_size / 2.0);
+                    primitives.push(Primitive::Quad {
+                        bounds: Rectangle {
+                            x: x1,
+                            y: 0.0,
+                            width: x2 - x1,
+                            height: bar_size,
+                        },
+                        background: Background::Color(color_inactive.1),
+                        border_radius: [0.0, 0.0, 0.0, 0.0],
+                        border_width: 0.0,
+                        border_color: Color::TRANSPARENT,
+                    });
+                    x1 = x2;
                 }
-                x += self.num_width;
+                x2 += self.num_width;
                 match primitive {
                     Primitive::Text { color, .. } => {
                         *color = color_active.0;
@@ -145,9 +139,9 @@ impl Tags {
             } else {
                 if in_selection {
                     in_selection = false;
-                    path.move_to(x, bar_size / 2.0);
+                    x1 = x2;
                 }
-                x += self.num_width;
+                x2 += self.num_width;
                 match primitive {
                     Primitive::Text { color, .. } => {
                         *color = color_inactive.0;
@@ -156,18 +150,22 @@ impl Tags {
                 }
             }
         }
-        if in_selection {
-            path.move_to(x, bar_size / 2.0);
-        } else {
-            path.line_to(x, bar_size / 2.0);
+        if !in_selection {
+            primitives.push(Primitive::Quad {
+                bounds: Rectangle {
+                    x: x1,
+                    y: 0.0,
+                    width: x2 - x1,
+                    height: bar_size,
+                },
+                background: Background::Color(color_inactive.1),
+                border_radius: [0.0, 0.0, 0.0, 0.0],
+                border_width: 0.0,
+                border_color: Color::TRANSPARENT,
+            });
         }
 
-        self.tags_background = Arc::new(Primitive::Stroke {
-            path: path.finish().unwrap(),
-            paint,
-            stroke,
-            transform: Transform::default(),
-        });
+        self.tags_background = Arc::new(Primitive::Group { primitives });
     }
     pub fn relayout_windows(&mut self, color_active: Color, color_inactive: Color, padding_x: f32) {
         let mut primitives = Vec::new();

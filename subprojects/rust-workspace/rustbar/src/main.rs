@@ -32,6 +32,7 @@ use client::{
     protocol::{wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
     Connection, Proxy, QueueHandle,
 };
+use cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1;
 use dbus::message::MatchRule;
 use dconf_sys::dconf_client_new;
 use dconf_sys::dconf_client_read;
@@ -121,6 +122,42 @@ pub mod znet_dwl {
     wayland_scanner::generate_client_code!(
         "../../dwl/protocols/net-tapesoftware-dwl-wm-unstable-v1.xml"
     );
+}
+
+pub mod zwp_tablet_tool {
+    use smithay_client_toolkit::reexports::client as wayland_client;
+    use wayland_client::protocol::*;
+
+    pub mod __interfaces {
+        use smithay_client_toolkit::reexports::client as wayland_client;
+        use wayland_client::protocol::__interfaces::*;
+        wayland_scanner::generate_interfaces!(
+            "/usr/share/wayland-protocols/unstable/tablet/tablet-unstable-v2.xml"
+        );
+    }
+
+    use self::__interfaces::*;
+
+    wayland_scanner::generate_client_code!(
+        "/usr/share/wayland-protocols/unstable/tablet/tablet-unstable-v2.xml"
+    );
+}
+
+pub mod cursor_shape {
+    use smithay_client_toolkit::reexports::client as wayland_client;
+    use wayland_client::protocol::*;
+
+    pub mod __interfaces {
+        use super::super::zwp_tablet_tool::__interfaces::*;
+        use smithay_client_toolkit::reexports::client as wayland_client;
+        use wayland_client::protocol::__interfaces::*;
+        wayland_scanner::generate_interfaces!("src/cursor-shape-v1.xml");
+    }
+
+    use self::__interfaces::*;
+    use super::zwp_tablet_tool::zwp_tablet_tool_v2;
+
+    wayland_scanner::generate_client_code!("src/cursor-shape-v1.xml");
 }
 
 #[macro_export]
@@ -688,6 +725,8 @@ fn main() {
     let layer_shell = LayerShell::bind(&globals, &qh).unwrap();
 
     let dwl: ZnetTapesoftwareDwlWmV1 = globals.bind(&qh, 1..=1, GlobalData).unwrap();
+    let cursor_shape_manager: WpCursorShapeManagerV1 =
+        globals.bind(&qh, 1..=1, GlobalData).unwrap();
 
     let shm = Shm::bind(&globals, &qh).unwrap();
 
@@ -747,6 +786,7 @@ fn main() {
         status_bar_buffer,
         measured_text.0 + (bar_settings.padding_x * 2.0),
         dwl,
+        cursor_shape_manager,
         dconf,
         layer_shell,
         compositor,
@@ -927,6 +967,7 @@ pub struct SimpleLayer {
     bar_size: u32,
     layer_shell: LayerShell,
     dwl: ZnetTapesoftwareDwlWmV1,
+    cursor_shape_manager: WpCursorShapeManagerV1,
     surfaces: HashMap<ObjectId, Output>,
     ascii_font_width: f32,
     output_map: HashMap<ObjectId, ObjectId>,
@@ -957,6 +998,7 @@ impl SimpleLayer {
         status_bar_buffer: String,
         buffer_width: f32,
         dwl: ZnetTapesoftwareDwlWmV1,
+        cursor_shape_manager: WpCursorShapeManagerV1,
         dconf: *mut DConfClient,
         layer_shell: LayerShell,
         compositor_state: CompositorState,
@@ -973,6 +1015,7 @@ impl SimpleLayer {
             dconf,
             status_bar_buffer,
             dwl,
+            cursor_shape_manager,
             shared_data,
             layer_shell,
             compositor_state,
@@ -1549,16 +1592,23 @@ impl PointerHandler for SimpleLayer {
     fn pointer_frame(
         &mut self,
         _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _pointer: &wl_pointer::WlPointer,
+        qh: &QueueHandle<Self>,
+        pointer: &wl_pointer::WlPointer,
         events: &[PointerEvent],
     ) {
         use PointerEventKind::*;
         for event in events {
             if let Some(output) = self.surfaces.get_mut(&event.surface.id()) {
                 match event.kind {
-                    Enter { .. } => {
-                        // println!("Pointer entered @{:?}", event.position);
+                    Enter { serial } => {
+                        let cursor_device = self
+                            .cursor_shape_manager
+                            .get_pointer(pointer, qh, GlobalData);
+
+                        cursor_device.set_shape(
+                            serial,
+                            cursor_shape::wp_cursor_shape_device_v1::Shape::Default,
+                        );
                     }
                     Leave { .. } => {
                         // println!("Pointer left");
@@ -2011,6 +2061,34 @@ impl
                 }
             }
         }
+    }
+}
+
+impl client::Dispatch<cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1, GlobalData>
+    for SimpleLayer
+{
+    fn event(
+        state: &mut Self,
+        proxy: &cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1,
+        event: <cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1 as Proxy>::Event,
+        data: &GlobalData,
+        conn: &Connection,
+        qhandle: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl client::Dispatch<cursor_shape::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1, GlobalData>
+    for SimpleLayer
+{
+    fn event(
+        state: &mut Self,
+        proxy: &cursor_shape::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1,
+        event: <cursor_shape::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1 as Proxy>::Event,
+        data: &GlobalData,
+        conn: &Connection,
+        qhandle: &QueueHandle<Self>,
+    ) {
     }
 }
 

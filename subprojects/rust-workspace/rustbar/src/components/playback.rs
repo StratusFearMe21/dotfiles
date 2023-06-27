@@ -64,16 +64,16 @@ impl PlaybackBlock {
         std::fmt::Write::write_fmt(f, format_args!("{}", self.playing)).unwrap();
         if self.playing != PlaybackStatus::Stopped {
             f.push_str(&self.song_metadata.0);
-            f.push_str(" - ");
-            f.push_str(&self.song_metadata.1);
+            // f.push_str(" - ");
+            // f.push_str(&self.song_metadata.1);
         }
     }
 
     pub fn fmt_table(&self, f: &mut BufWriter<UnixStream>) -> std::io::Result<()> {
         write!(f, include_str!("../table.txt"), self.playing)?;
-        f.write_all(self.song_metadata.0.as_bytes())?;
-        f.write_all(b" - ")?;
-        f.write_all(self.song_metadata.1.as_bytes())
+        f.write_all(self.song_metadata.0.as_bytes())
+        // f.write_all(b" - ")?;
+        // f.write_all(self.song_metadata.1.as_bytes())
     }
 
     pub fn query_media(&mut self, event: dbus::Message) -> bool {
