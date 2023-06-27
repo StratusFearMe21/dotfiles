@@ -13,7 +13,7 @@ AUR helper.
 - Custom status bar inspired by `somebar`, written in Rust
   - Shows current tags, window layout, window title, and status bar text, updated in an extremely lightweight manner
   - Shows volume and brightness progress bars when they are adjusted using the buttons
-  - Implements a `dmenu`-like application launcher that reads `.desktop` files and uses [Skim V2](https://docs.rs/fuzzy-matcher/latest/fuzzy_matcher/skim/struct.SkimMatcherV2.html) fuzzy matching
+  - Implements a `dmenu`-like application launcher that reads `.desktop` files and uses the [Helix QueryAtom](Helix QueryAtoms) for fuzzy matching
 - Nushell config with a greeting that runs in ~1ms thanks to the custom status bar
 - Ayu Dark color scheme throughout
 - `foot` config with colorscheme
@@ -59,3 +59,30 @@ From there you can navigate into the `dotfiles` folder and change various settin
 ![dconf-editor demo](screenshot-dconf.png)
 
 ***Configuration changes are applied instantly and don't require restarting the supported apps***
+
+### Helix QueryAtoms
+You can use this syntax in the app selecter to match application names
+```rust
+enum QueryAtomKind {
+    /// Item is a fuzzy match of this behaviour
+    ///
+    /// Usage: `foo`
+    Fuzzy,
+    /// Item contains query atom as a continuous substring
+    ///
+    /// Usage `'foo`
+    Substring,
+    /// Item starts with query atom
+    ///
+    /// Usage: `^foo`
+    Prefix,
+    /// Item ends with query atom
+    ///
+    /// Usage: `foo$`
+    Postfix,
+    /// Item is equal to query atom
+    ///
+    /// Usage `^foo$`
+    Exact,
+}
+```

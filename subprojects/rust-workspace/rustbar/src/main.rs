@@ -2068,12 +2068,12 @@ impl client::Dispatch<cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeMan
     for SimpleLayer
 {
     fn event(
-        state: &mut Self,
-        proxy: &cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1,
-        event: <cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1 as Proxy>::Event,
-        data: &GlobalData,
-        conn: &Connection,
-        qhandle: &QueueHandle<Self>,
+        _: &mut Self,
+        _: &cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1,
+        _: <cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1 as Proxy>::Event,
+        _: &GlobalData,
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
     }
 }
@@ -2082,12 +2082,12 @@ impl client::Dispatch<cursor_shape::wp_cursor_shape_device_v1::WpCursorShapeDevi
     for SimpleLayer
 {
     fn event(
-        state: &mut Self,
-        proxy: &cursor_shape::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1,
-        event: <cursor_shape::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1 as Proxy>::Event,
-        data: &GlobalData,
-        conn: &Connection,
-        qhandle: &QueueHandle<Self>,
+        _: &mut Self,
+        _: &cursor_shape::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1,
+        _: <cursor_shape::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1 as Proxy>::Event,
+        _: &GlobalData,
+        _: &Connection,
+        _: &QueueHandle<Self>,
     ) {
     }
 }
