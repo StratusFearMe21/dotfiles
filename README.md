@@ -13,7 +13,7 @@ AUR helper.
 - Custom status bar inspired by `somebar`, written in Rust
   - Shows current tags, window layout, window title, and status bar text, updated in an extremely lightweight manner
   - Shows volume and brightness progress bars when they are adjusted using the buttons
-  - Implements a `dmenu`-like application launcher that reads `.desktop` files and uses the [Helix QueryAtom](#helix-queryatoms) for fuzzy matching
+  - Implements a `dmenu`-like application launcher that reads `.desktop` files and uses the [Helix QueryAtom](#helix-queryatoms) for pattern matching
 - Nushell config with a greeting that runs in ~1ms thanks to the custom status bar
 - Ayu Dark color scheme throughout
 - `foot` config with colorscheme
