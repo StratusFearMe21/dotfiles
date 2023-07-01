@@ -49,6 +49,8 @@ pub struct ConnmanBlock {
     connected_service: String,
     online: ConnmanState,
     match_token: dbus::channel::Token,
+    pub x_at: f32,
+    pub width: f32,
 }
 
 impl ConnmanBlock {
@@ -103,6 +105,8 @@ impl ConnmanBlock {
             connected_service,
             online,
             match_token,
+            x_at: 0.0,
+            width: 0.0,
         }
     }
 
@@ -114,7 +118,7 @@ impl ConnmanBlock {
         std::fmt::Write::write_fmt(
             f,
             format_args!(
-                "{}{}  ",
+                " {}{} ",
                 self.online,
                 match self.online {
                     ConnmanState::Ready | ConnmanState::Online => &self.connected_service,

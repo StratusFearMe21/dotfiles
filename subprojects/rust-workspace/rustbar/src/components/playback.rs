@@ -14,6 +14,8 @@ pub struct PlaybackBlock {
     playing: PlaybackStatus,
     song_metadata: (String, String),
     match_token: dbus::channel::Token,
+    pub x_at: f32,
+    pub width: f32,
 }
 
 impl PlaybackBlock {
@@ -53,6 +55,8 @@ impl PlaybackBlock {
             playing,
             song_metadata,
             match_token,
+            x_at: 0.0,
+            width: 0.0,
         }
     }
 
@@ -61,7 +65,7 @@ impl PlaybackBlock {
     }
 
     pub fn fmt(&self, f: &mut String) {
-        std::fmt::Write::write_fmt(f, format_args!("{}", self.playing)).unwrap();
+        std::fmt::Write::write_fmt(f, format_args!(" {}", self.playing)).unwrap();
         if self.playing != PlaybackStatus::Stopped {
             f.push_str(&self.song_metadata.0);
             // f.push_str(" - ");

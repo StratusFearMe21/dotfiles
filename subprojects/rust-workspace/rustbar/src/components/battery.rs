@@ -87,6 +87,8 @@ macro_rules! match_battery {
 pub struct BatteryBlock {
     bat_devices: HashMap<dbus::Path<'static>, BatteryDevice>,
     match_handles: [dbus::channel::Token; 3],
+    pub x_at: f32,
+    pub width: f32,
 }
 
 impl BatteryBlock {
@@ -115,6 +117,8 @@ impl BatteryBlock {
         Self {
             bat_devices: shared_data,
             match_handles,
+            x_at: 0.0,
+            width: 0.0,
         }
     }
 
@@ -129,7 +133,7 @@ impl BatteryBlock {
             std::fmt::Write::write_fmt(
                 f,
                 format_args!(
-                    "{}{}{}% ",
+                    " {}{}{}% ",
                     match_bat_type!(i),
                     match_battery!(i),
                     i.percentage
@@ -139,8 +143,9 @@ impl BatteryBlock {
             if i.state != BatteryState::Unknown {
                 std::fmt::Write::write_fmt(f, format_args!("{:?}{}", i.time, i.time)).unwrap();
             }
-            f.push_str(" ");
-        })
+            f.push_str(" ");
+        });
+        f.pop();
     }
 
     pub fn fmt_table(&self, f: &mut BufWriter<UnixStream>) -> std::io::Result<()> {
@@ -273,9 +278,9 @@ pub enum TimeTo {
 impl Display for TimeTo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TimeTo::Empty(_) => write!(f, "󰁆 "),
-            TimeTo::Full(_) => write!(f, "󰁞 "),
-            TimeTo::Unknown => write!(f, "󰑓 "),
+            TimeTo::Empty(_) => write!(f, "󰁆"),
+            TimeTo::Full(_) => write!(f, "󰁞"),
+            TimeTo::Unknown => write!(f, "󰑓"),
         }
     }
 }

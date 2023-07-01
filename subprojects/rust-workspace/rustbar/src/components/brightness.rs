@@ -29,6 +29,8 @@ pub struct BrightnessBlock {
     brightness: usize,
     max_brightness: f32,
     handle: RegistrationToken,
+    pub x_at: f32,
+    pub width: f32,
 }
 
 impl BrightnessBlock {
@@ -89,7 +91,7 @@ impl BrightnessBlock {
                                 .max_brightness)
                             * 100.0) as _;
 
-                        data.write_bar(Rc::clone(&qh))
+                        data.write_bar(Rc::clone(&qh).as_ref())
                     }
                     Ok(PostAction::Continue)
                 },
@@ -100,6 +102,8 @@ impl BrightnessBlock {
             brightness,
             max_brightness,
             handle,
+            x_at: 0.0,
+            width: 0.0,
         }
     }
 
@@ -111,7 +115,7 @@ impl BrightnessBlock {
         std::fmt::Write::write_fmt(
             f,
             format_args!(
-                "{}{}%  ",
+                " {}{}% ",
                 match_brightness!(self.brightness),
                 self.brightness
             ),

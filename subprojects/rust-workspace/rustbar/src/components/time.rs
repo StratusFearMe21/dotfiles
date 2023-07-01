@@ -123,6 +123,8 @@ pub struct TimeBlock {
     pub time_servers: Vec<String>,
     pub now: OffsetDateTime,
     pub show_day: bool,
+    pub x_at: f32,
+    pub width: f32,
     handle: RegistrationToken,
 }
 
@@ -163,7 +165,7 @@ impl TimeBlock {
                 move |_event, _metadata, shared_data| unsafe {
                     shared_data.shared_data.time.as_mut().unwrap_unchecked().now +=
                         time::Duration::minutes(1);
-                    shared_data.write_bar(Rc::clone(&qh));
+                    shared_data.write_bar(Rc::clone(&qh).as_ref());
                     TimeoutAction::ToDuration(Duration::from_secs(60))
                 },
             )
@@ -176,6 +178,8 @@ impl TimeBlock {
             time_servers,
             is_time_updated: false,
             handle,
+            x_at: 0.0,
+            width: 0.0,
         }
     }
 
@@ -198,7 +202,7 @@ impl TimeBlock {
                 .format_into(unsafe { f.as_mut_vec() }, DATE_FMT.as_ref())
                 .unwrap();
         }
-        f.push_str("  ");
+        f.push(' ');
     }
 
     pub fn fmt_table(&self, f: &mut BufWriter<UnixStream>) -> std::io::Result<()> {
