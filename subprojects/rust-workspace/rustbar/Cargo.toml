@@ -7,22 +7,27 @@ edition = "2021"
 
 [dependencies]
 smithay-client-toolkit = "0.17.0"
-tiny-skia = "0.9.1"
+tiny-skia = "0.10"
 calloop-dbus = { path = "../calloop-dbus" }
 dbus = "0.9.7"
-dirs = "4.0.0"
+dirs = "5.0.1"
 nix = { version = "0.26.2", default-features = false, features = ["inotify"] }
 rand = { version = "0.8.5", default-features = false, features = ["std"] }
 time = { version = "0.3.20", features = ["local-offset", "formatting"] }
 tz-rs = "0.6.14"
 dconf-sys = { path = "../dconf-sys" }
-glib = "0.17.9"
+glib = "0.18.1"
 memchr = "2.5.0"
 cosmic-text = "0.8.0"
-iced_tiny_skia = { path = "../iced/tiny_skia" }
+# iced_tiny_skia = { path = "../iced/tiny_skia" }
 wayland-scanner = "0.30.0"
 wayland-backend = "0.1.2"
 freedesktop-desktop-entry = "0.5.0"
 num_enum = "0.6.1"
-fuzzy-matcher = "0.3.7"
 keyframe = { version = "1.1.1", default-features = false }
+iced_tiny_skia = "0.1.0"
+yoke = { version = "0.7.3", features = ["derive"] }
+nucleo-matcher = "0.2.0"
+color = { version = "0.1.0", path = "../color" }
+palette = { version = "0.7.3", default-features = false, features = ["std"] }
+cssparser = "0.33.0"

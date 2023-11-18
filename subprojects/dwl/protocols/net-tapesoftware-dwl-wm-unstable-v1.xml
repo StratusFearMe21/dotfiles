@@ -44,7 +44,8 @@
             <entry name="light_up" value="2" summary=""/>
             <entry name="light_down" value="3" summary=""/>
             <entry name="launch_app" value="4" summary=""/>
-            <entry name="overlay" value="5" summary=""/>
+            <entry name="overlay" value="5" summary="" />
+            <entry name="power_button" value="6" summary="" />
         </enum>
 
         <request name="release" type="destructor">

@@ -64,16 +64,16 @@
           no be updated or appear in the status bar if set to false
         </description>
       </key>
-      <key name="color-inactive" type="((ddd)(ddd))">
-        <default>((0.701,0.694,0.678),(0.039,0.054,0.078))</default>
+      <key name="color-inactive" type="(ss)">
+        <default>("#b3b1ad","#0a0e14")</default>
         <summary>Status bar color when monitor is not active</summary>
         <description>
           Changes the color of the status bar when the monitor it resides
           on does not have a window in focus.
         </description>
       </key>
-      <key name="color-active" type="((ddd)(ddd))">
-        <default>((1.0, 0.560, 0.250),(0.2, 0.227, 0.250))</default>
+      <key name="color-active" type="(ss)">
+        <default>("#ff8f40","#333a40")</default>
         <summary>Status bar color when monitor is active</summary>
         <description>
           Changes the color of the status bar when the monitor it resides
@@ -92,7 +92,7 @@
         <default>10.0</default>
       </key>
       <key name="padding-y" type="d">
-        <default>5.0</default>
+        <default>3.0</default>
       </key>
       <key name="top-bar" type="b">
         <default>true</default>

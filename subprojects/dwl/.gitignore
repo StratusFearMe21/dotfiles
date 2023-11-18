@@ -5,4 +5,4 @@ subprojects/
 *-protocol.c
 *-protocol.h
 .ccls-cache
-config.h
+# config.h

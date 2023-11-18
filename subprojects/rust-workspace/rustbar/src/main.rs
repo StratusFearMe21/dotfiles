@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{ffi::CString, rc::Rc};
 
+use color::DefaultColorParser;
 use components::{
     battery::BatteryBlock,
     brightness::BrightnessBlock,
@@ -32,6 +33,7 @@ use client::{
     protocol::{wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
     Connection, Proxy, QueueHandle,
 };
+use cssparser::{Parser, ParserInput};
 use cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1;
 use dbus::message::MatchRule;
 use dconf_sys::dconf_client_new;
@@ -39,9 +41,6 @@ use dconf_sys::dconf_client_read;
 use dconf_sys::DConfClient;
 use freedesktop_desktop_entry::default_paths;
 use freedesktop_desktop_entry::DesktopEntry;
-use fuzzy_match::FuzzyQuery;
-use fuzzy_matcher::skim::SkimMatcherV2;
-use glib::log_writer_is_journald;
 use glib::FromVariant;
 use iced_tiny_skia::core::font::Family;
 use iced_tiny_skia::core::Background;
@@ -51,9 +50,12 @@ use iced_tiny_skia::{
         text::{LineHeight, Shaping},
         Color, Font, Rectangle, Size,
     },
-    graphics::{backend::Text, Primitive, Viewport},
+    graphics::{backend::Text, Viewport},
+    Primitive,
 };
 use memchr::memchr;
+use nucleo_matcher::pattern::Pattern;
+use palette::IntoColor;
 use smithay_client_toolkit::delegate_keyboard;
 use smithay_client_toolkit::globals::GlobalData;
 use smithay_client_toolkit::reexports::calloop::timer::TimeoutAction;
@@ -93,23 +95,25 @@ use smithay_client_toolkit::{
 };
 use tags::Tags;
 use tiny_skia::{Mask, PixmapMut};
+use yoke::Yokeable;
 use znet_dwl::znet_tapesoftware_dwl_wm_monitor_v1::ZnetTapesoftwareDwlWmMonitorV1;
 use znet_dwl::znet_tapesoftware_dwl_wm_v1::WobCommand;
 use znet_dwl::znet_tapesoftware_dwl_wm_v1::ZnetTapesoftwareDwlWmV1;
 
 mod connman;
 mod dconf;
+mod logind;
 mod mpris;
 mod upower;
 
 mod components;
-mod fuzzy_match;
 mod tags;
 
 pub mod znet_dwl {
     use smithay_client_toolkit::reexports::client as wayland_client;
     use wayland_client::protocol::*;
 
+    #[allow(non_upper_case_globals)]
     pub mod __interfaces {
         use smithay_client_toolkit::reexports::client as wayland_client;
         use wayland_client::protocol::__interfaces::*;
@@ -129,6 +133,7 @@ pub mod zwp_tablet_tool {
     use smithay_client_toolkit::reexports::client as wayland_client;
     use wayland_client::protocol::*;
 
+    #[allow(non_upper_case_globals)]
     pub mod __interfaces {
         use smithay_client_toolkit::reexports::client as wayland_client;
         use wayland_client::protocol::__interfaces::*;
@@ -148,6 +153,7 @@ pub mod cursor_shape {
     use smithay_client_toolkit::reexports::client as wayland_client;
     use wayland_client::protocol::*;
 
+    #[allow(non_upper_case_globals)]
     pub mod __interfaces {
         use super::super::zwp_tablet_tool::__interfaces::*;
         use smithay_client_toolkit::reexports::client as wayland_client;
@@ -196,8 +202,16 @@ const DIVIDER_HARD: &str = "";
 struct DesktopCommand {
     name: String,
     command: String,
-    score: Option<i64>,
 }
+
+impl AsRef<str> for DesktopCommand {
+    fn as_ref(&self) -> &str {
+        &self.name
+    }
+}
+
+#[derive(Yokeable)]
+pub struct Commands<'a>(&'a [DesktopCommand], Vec<(&'a DesktopCommand, u32)>);
 
 enum BarState {
     Normal,
@@ -206,10 +220,9 @@ enum BarState {
         icon: char,
     },
     AppLauncher {
-        apps: Vec<DesktopCommand>,
+        apps: yoke::Yoke<Commands<'static>, Vec<DesktopCommand>>,
         layout: Vec<Primitive>,
         current_input: String,
-        matcher: SkimMatcherV2,
         selected: usize,
     },
 }
@@ -244,6 +257,7 @@ impl SharedData {
     ) -> Self {
         unsafe {
             let loop_handle: LoopHandle<'static, SimpleLayer> = std::mem::transmute(handle.clone());
+            let sys_handle: LoopHandle<'static, SimpleLayer> = std::mem::transmute(handle.clone());
 
             let (user_connection, _): (calloop_dbus::SyncDBusSource<()>, _) =
                 calloop_dbus::SyncDBusSource::new_session().unwrap();
@@ -295,6 +309,13 @@ impl SharedData {
             }
 
             let sys_qh = Rc::clone(&qh);
+
+            system_connection
+                .add_match(
+                    MatchRule::new_signal("org.freedesktop.login1.Manager", "PrepareForShutdown"),
+                    |_: (), _, _| true,
+                )
+                .unwrap();
 
             handle
                 .insert_source(user_connection, move |event, user_con, shared_data| {
@@ -350,7 +371,7 @@ impl SharedData {
                                             },
                                             Shaping::Basic,
                                         )
-                                        .0;
+                                        .width;
 
                                     shared_data.relayout(Rc::clone(&qh));
                                 }
@@ -513,7 +534,7 @@ impl SharedData {
                                         shared_data.dconf,
                                         "/dotfiles/somebar/padding-y",
                                     )
-                                    .unwrap_or(5.0)
+                                    .unwrap_or(3.0)
                                         as f32;
 
                                     shared_data.relayout(Rc::clone(&qh));
@@ -572,8 +593,8 @@ impl SharedData {
             handle
                 .insert_source(system_connection, move |event, dbus, shared_data| {
                     let Some(member) = event.member() else {
-                    return None;
-                };
+                        return None;
+                    };
                     if &*member == "PropertiesChanged" {
                         if let Some(ref mut bat_block) = shared_data.shared_data.bat_block {
                             let property: upower::OrgFreedesktopDBusPropertiesPropertiesChanged =
@@ -603,6 +624,30 @@ impl SharedData {
 
                             shared_data.write_bar(&sys_qh);
                         }
+                    } else if &*member == "PrepareForShutdown" {
+                        let prepare: logind::OrgFreedesktopLogin1ManagerPrepareForShutdown =
+                            event.read_all().unwrap();
+
+                        if !prepare.start {
+                            if let Some(ref mut time) = shared_data.shared_data.time {
+                                time.unregister(&sys_handle);
+                                *time = TimeBlock::new(
+                                    &sys_handle,
+                                    dconf_read_variant(dconf, "/dotfiles/somebar/time-show-day")
+                                        .unwrap_or(true),
+                                    dconf_read_variant(dconf, "/dotfiles/somebar/update-time-ntp")
+                                        .unwrap_or(true),
+                                    dconf_read_variant(dconf, "/dotfiles/somebar/time-servers")
+                                        .unwrap_or(
+                                            NTP_SERVERS
+                                                .into_iter()
+                                                .map(|s| s.to_string())
+                                                .collect(),
+                                        ),
+                                    Rc::clone(&sys_qh),
+                                );
+                            }
+                        }
                     }
                     None
                 })
@@ -628,9 +673,12 @@ impl SharedData {
             handle
                 .insert_source(
                     Signals::new(&[Signal::SIGINT, Signal::SIGTERM]).unwrap(),
-                    move |_, _, data| {
-                        std::fs::remove_file(&socket_file).unwrap();
-                        data.exit.stop();
+                    move |signal, _, data| match signal.signal() {
+                        Signal::SIGINT | Signal::SIGTERM => {
+                            std::fs::remove_file(&socket_file).unwrap();
+                            data.exit.stop();
+                        }
+                        _ => unreachable!(),
                     },
                 )
                 .unwrap();
@@ -691,7 +739,7 @@ impl SharedData {
                     Size::INFINITY,
                     Shaping::Basic,
                 )
-                .0;
+                .width;
             x -= measurement;
             primitives.push(Primitive::Text {
                 content,
@@ -709,25 +757,25 @@ impl SharedData {
                 vertical_alignment: Vertical::Center,
                 shaping: Shaping::Basic,
             });
-            x -= divider_measurement.0;
+            x -= divider_measurement.width;
             primitives.push(Primitive::Text {
                 content: DIVIDER.to_owned(),
                 bounds: Rectangle {
                     x,
-                    y: 0.0,
+                    y: logical_size.height / 2.0,
                     width: logical_size.width,
                     height: logical_size.height,
                 },
                 color,
-                size: backend.default_size() + padding_y,
+                size: backend.default_size() + padding_y * 2.0,
                 line_height: LineHeight::Relative(1.0),
                 font: backend.default_font(),
                 horizontal_alignment: Horizontal::Left,
-                vertical_alignment: Vertical::Top,
+                vertical_alignment: Vertical::Center,
                 shaping: Shaping::Basic,
             });
             media.x_at = x;
-            media.width = measurement + divider_measurement.0 + padding_x;
+            media.width = measurement + divider_measurement.width + padding_x;
         }
 
         if let Some(ref mut connman) = self.connman {
@@ -742,7 +790,7 @@ impl SharedData {
                     Size::INFINITY,
                     Shaping::Basic,
                 )
-                .0;
+                .width;
             x -= measurement;
             primitives.push(Primitive::Text {
                 content,
@@ -760,78 +808,85 @@ impl SharedData {
                 vertical_alignment: Vertical::Center,
                 shaping: Shaping::Basic,
             });
-            x -= divider_measurement.0;
+            x -= divider_measurement.width;
             primitives.push(Primitive::Text {
                 content: DIVIDER.to_owned(),
                 bounds: Rectangle {
                     x,
-                    y: 0.0,
+                    y: logical_size.height / 2.0,
                     width: logical_size.width,
                     height: logical_size.height,
                 },
                 color,
-                size: backend.default_size() + padding_y,
+                size: backend.default_size() + padding_y * 2.0,
                 line_height: LineHeight::Relative(1.0),
                 font: backend.default_font(),
                 horizontal_alignment: Horizontal::Left,
-                vertical_alignment: Vertical::Top,
+                vertical_alignment: Vertical::Center,
                 shaping: Shaping::Basic,
             });
 
             connman.x_at = x;
-            connman.width = measurement + divider_measurement.0;
+            connman.width = measurement + divider_measurement.width;
         }
 
         if let Some(ref mut bat_block) = self.bat_block {
-            let mut content = String::new();
-            bat_block.fmt(&mut content);
-            let measurement = backend
-                .measure(
-                    &content,
-                    backend.default_size(),
-                    LineHeight::Relative(1.0),
-                    backend.default_font(),
-                    Size::INFINITY,
-                    Shaping::Basic,
-                )
-                .0;
-            x -= measurement;
-            primitives.push(Primitive::Text {
-                content,
-                bounds: Rectangle {
-                    x,
-                    y: logical_size.height / 2.0,
-                    width: logical_size.width,
-                    height: logical_size.height / 2.0,
-                },
-                color,
-                size: backend.default_size(),
-                line_height: LineHeight::Relative(1.0),
-                font: backend.default_font(),
-                horizontal_alignment: Horizontal::Left,
-                vertical_alignment: Vertical::Center,
-                shaping: Shaping::Basic,
-            });
-            x -= divider_measurement.0;
-            primitives.push(Primitive::Text {
-                content: DIVIDER.to_owned(),
-                bounds: Rectangle {
-                    x,
-                    y: 0.0,
-                    width: logical_size.width,
-                    height: logical_size.height,
-                },
-                color,
-                size: backend.default_size() + padding_y,
-                line_height: LineHeight::Relative(1.0),
-                font: backend.default_font(),
-                horizontal_alignment: Horizontal::Left,
-                vertical_alignment: Vertical::Top,
-                shaping: Shaping::Basic,
-            });
+            let mut measurement = 0.0;
+            for content in
+                unsafe { std::mem::transmute::<&BatteryBlock, &'static BatteryBlock>(&bat_block) }
+                    .fmt()
+            {
+                let current_measurement = backend
+                    .measure(
+                        &content,
+                        backend.default_size(),
+                        LineHeight::Relative(1.0),
+                        backend.default_font(),
+                        Size::INFINITY,
+                        Shaping::Basic,
+                    )
+                    .width;
+
+                x -= current_measurement;
+                primitives.push(Primitive::Text {
+                    content,
+                    bounds: Rectangle {
+                        x,
+                        y: logical_size.height / 2.0,
+                        width: logical_size.width,
+                        height: logical_size.height / 2.0,
+                    },
+                    color,
+                    size: backend.default_size(),
+                    line_height: LineHeight::Relative(1.0),
+                    font: backend.default_font(),
+                    horizontal_alignment: Horizontal::Left,
+                    vertical_alignment: Vertical::Center,
+                    shaping: Shaping::Basic,
+                });
+                x -= divider_measurement.width;
+                primitives.push(Primitive::Text {
+                    content: DIVIDER.to_owned(),
+                    bounds: Rectangle {
+                        x,
+                        y: logical_size.height / 2.0,
+                        width: logical_size.width,
+                        height: logical_size.height,
+                    },
+                    color,
+                    size: backend.default_size() + padding_y * 2.0,
+                    line_height: LineHeight::Relative(1.0),
+                    font: backend.default_font(),
+                    horizontal_alignment: Horizontal::Left,
+                    vertical_alignment: Vertical::Center,
+                    shaping: Shaping::Basic,
+                });
+
+                measurement += current_measurement + divider_measurement.width;
+            }
 
             bat_block.x_at = x;
-            bat_block.width = measurement + divider_measurement.0;
+            bat_block.width = measurement;
         }
 
         if let Some(ref mut brightness) = self.brightness {
@@ -846,7 +901,7 @@ impl SharedData {
                     Size::INFINITY,
                     Shaping::Basic,
                 )
-                .0;
+                .width;
             x -= measurement;
             primitives.push(Primitive::Text {
                 content,
@@ -864,26 +919,26 @@ impl SharedData {
                 vertical_alignment: Vertical::Center,
                 shaping: Shaping::Basic,
             });
-            x -= divider_measurement.0;
+            x -= divider_measurement.width;
             primitives.push(Primitive::Text {
                 content: DIVIDER.to_owned(),
                 bounds: Rectangle {
                     x,
-                    y: 0.0,
+                    y: logical_size.height / 2.0,
                     width: logical_size.width,
                     height: logical_size.height,
                 },
                 color,
-                size: backend.default_size() + padding_y,
+                size: backend.default_size() + padding_y * 2.0,
                 line_height: LineHeight::Relative(1.0),
                 font: backend.default_font(),
                 horizontal_alignment: Horizontal::Left,
-                vertical_alignment: Vertical::Top,
+                vertical_alignment: Vertical::Center,
                 shaping: Shaping::Basic,
             });
 
             brightness.x_at = x;
-            brightness.width = measurement + divider_measurement.0;
+            brightness.width = measurement + divider_measurement.width;
         }
 
         let mut height = 0.0;
@@ -899,8 +954,8 @@ impl SharedData {
                 Size::INFINITY,
                 Shaping::Basic,
             );
-            height = measurement.1;
-            let measurement = measurement.0;
+            height = measurement.height;
+            let measurement = measurement.width;
             x -= measurement;
             primitives.push(Primitive::Text {
                 content,
@@ -974,6 +1029,35 @@ fn dconf_read_variant<T: FromVariant>(dconf_client: *mut DConfClient, path: &str
 }
 
 fn main() {
+    if std::env::args().nth(1).map(|a| a == "check") == Some(true) {
+        freedesktop_desktop_entry::Iter::new(default_paths()).for_each(|entry| {
+            if let Ok(bytes) = std::fs::read_to_string(&entry) {
+                if let Ok(entry) = DesktopEntry::decode(&entry, &bytes) {
+                    if let Some(exec) = entry.exec() {
+                        let mut command = exec.to_owned();
+                        while let Some(index) = memchr(b'%', command.as_bytes()) {
+                            if index + 1 == command.len() {
+                                command.pop();
+                                command.pop();
+                            } else {
+                                command.remove(index + 1);
+                                command.remove(index);
+                            }
+                        }
+                        println!("{}", entry.path.display());
+                        let _ = std::process::Command::new("sh")
+                            .args([
+                                "-c",
+                                &format!("which {}", command.split(' ').next().unwrap()),
+                            ])
+                            .status();
+                    }
+                }
+            }
+        });
+        return;
+    }
+
     let conn = Connection::connect_to_env().unwrap();
 
     let (globals, event_queue) = registry_queue_init(&conn).unwrap();
@@ -1028,7 +1112,7 @@ fn main() {
 
     let bar_size = Size {
         width: 0.0,
-        height: measured_text.1 + bar_settings.padding_y * 2.0,
+        height: measured_text.height + bar_settings.padding_y * 2.0,
     };
 
     let pool = SlotPool::new(1920 * bar_size.height as usize * 4, &shm).unwrap();
@@ -1138,46 +1222,90 @@ pub struct BarSettings {
     top_bar: bool,
 }
 
+fn parse_color(
+    color_input: &mut [palette::Srgba; 2],
+    dconf_path: &str,
+    dconf_client: *mut DConfClient,
+) {
+    if let Some((color_one, color_two)) =
+        dconf_read_variant::<(String, String)>(dconf_client, dconf_path)
+    {
+        if let Ok((_, color)) = color::parse_color_with::<color::Color>(
+            &mut DefaultColorParser::new(Some(&mut color::Color::LinSrgb(
+                color_input[0].into_linear(),
+            ))),
+            &mut Parser::new(&mut ParserInput::new(&color_one)),
+        ) {
+            let color: palette::LinSrgba = color.into_color();
+            color_input[0] = palette::Srgba::from_linear(color);
+        }
+
+        if let Ok((_, color)) = color::parse_color_with::<color::Color>(
+            &mut DefaultColorParser::new(Some(&mut color::Color::LinSrgb(
+                color_input[1].into_linear(),
+            ))),
+            &mut Parser::new(&mut ParserInput::new(&color_two)),
+        ) {
+            let color: palette::LinSrgba = color.into_color();
+            color_input[1] = palette::Srgba::from_linear(color);
+        }
+    }
+}
+
 impl BarSettings {
     fn new(default_font: String, dconf: *mut DConfClient) -> BarSettings {
-        let color_active: ((f64, f64, f64), (f64, f64, f64)) =
-            dconf_read_variant(dconf, "/dotfiles/somebar/color-active")
-                .unwrap_or(((1.0, 0.56, 0.25), (0.2, 0.227, 0.25)));
+        let mut color_active: [palette::Srgba; 2] = [
+            palette::Srgba::from_components((1.0, 0.56, 0.25, 1.0)),
+            palette::Srgba::from_components((0.2, 0.227, 0.25, 1.0)),
+        ];
 
-        let color_inactive: ((f64, f64, f64), (f64, f64, f64)) =
-            dconf_read_variant(dconf, "/dotfiles/somebar/color-inactive")
-                .unwrap_or(((0.701, 0.694, 0.678), (0.039, 0.054, 0.078)));
+        parse_color(&mut color_active, "/dotfiles/somebar/color-active", dconf);
+
+        let mut color_inactive: [palette::Srgba; 2] = [
+            palette::Srgba::from_components((0.701, 0.694, 0.678, 1.0)),
+            palette::Srgba::from_components((0.039, 0.054, 0.078, 1.0)),
+        ];
+
+        parse_color(
+            &mut color_inactive,
+            "/dotfiles/somebar/color-inactive",
+            dconf,
+        );
 
         BarSettings {
             color_active: (
-                Color::from_rgb(
-                    color_active.0 .0 as f32,
-                    color_active.0 .1 as f32,
-                    color_active.0 .2 as f32,
+                Color::from_rgba(
+                    color_active[0].red,
+                    color_active[0].green,
+                    color_active[0].blue,
+                    color_active[0].alpha,
                 ),
-                Color::from_rgb(
-                    color_active.1 .0 as f32,
-                    color_active.1 .1 as f32,
-                    color_active.1 .2 as f32,
+                Color::from_rgba(
+                    color_active[1].red,
+                    color_active[1].green,
+                    color_active[1].blue,
+                    color_active[1].alpha,
                 ),
             ),
             color_inactive: (
-                Color::from_rgb(
-                    color_inactive.0 .0 as f32,
-                    color_inactive.0 .1 as f32,
-                    color_inactive.0 .2 as f32,
+                Color::from_rgba(
+                    color_inactive[0].red,
+                    color_inactive[0].green,
+                    color_inactive[0].blue,
+                    color_inactive[0].alpha,
                 ),
-                Color::from_rgb(
-                    color_inactive.1 .0 as f32,
-                    color_inactive.1 .1 as f32,
-                    color_inactive.1 .2 as f32,
+                Color::from_rgba(
+                    color_inactive[1].red,
+                    color_inactive[1].green,
+                    color_inactive[1].blue,
+                    color_inactive[1].alpha,
                 ),
             ),
             default_font,
             padding_x: dconf_read_variant::<f64>(dconf, "/dotfiles/somebar/padding-x")
                 .unwrap_or(10.0) as f32,
             padding_y: dconf_read_variant::<f64>(dconf, "/dotfiles/somebar/padding-y")
-                .unwrap_or(5.0) as f32,
+                .unwrap_or(3.0) as f32,
             bar_show_time: dconf_read_variant(dconf, "/dotfiles/somebar/bar-show-time")
                 .unwrap_or(500),
             top_bar: dconf_read_variant(dconf, "/dotfiles/somebar/top-bar").unwrap_or(true),
@@ -1185,39 +1313,53 @@ impl BarSettings {
     }
 
     fn update_color_active(&mut self, dconf: *mut DConfClient) {
-        let color_active: ((f64, f64, f64), (f64, f64, f64)) =
-            dconf_read_variant(dconf, "/dotfiles/somebar/color-active")
-                .unwrap_or(((1.0, 0.56, 0.25), (0.2, 0.227, 0.25)));
+        let mut color_active = [
+            palette::Srgba::from_components((1.0, 0.56, 0.25, 1.0)),
+            palette::Srgba::from_components((0.2, 0.227, 0.25, 1.0)),
+        ];
+
+        parse_color(&mut color_active, "/dotfiles/somebar/color-active", dconf);
 
         self.color_active = (
-            Color::from_rgb(
-                color_active.0 .0 as f32,
-                color_active.0 .1 as f32,
-                color_active.0 .2 as f32,
+            Color::from_rgba(
+                color_active[0].red,
+                color_active[0].green,
+                color_active[0].blue,
+                color_active[0].alpha,
             ),
-            Color::from_rgb(
-                color_active.1 .0 as f32,
-                color_active.1 .1 as f32,
-                color_active.1 .2 as f32,
+            Color::from_rgba(
+                color_active[1].red,
+                color_active[1].green,
+                color_active[1].blue,
+                color_active[1].alpha,
             ),
         );
     }
 
     fn update_color_inactive(&mut self, dconf: *mut DConfClient) {
-        let color_inactive: ((f64, f64, f64), (f64, f64, f64)) =
-            dconf_read_variant(dconf, "/dotfiles/somebar/color-inactive")
-                .unwrap_or(((1.0, 0.56, 0.25), (0.2, 0.227, 0.25)));
+        let mut color_inactive = [
+            palette::Srgba::from_components((0.701, 0.694, 0.678, 1.0)),
+            palette::Srgba::from_components((0.039, 0.054, 0.078, 1.0)),
+        ];
+
+        parse_color(
+            &mut color_inactive,
+            "/dotfiles/somebar/color-inactive",
+            dconf,
+        );
 
         self.color_inactive = (
-            Color::from_rgb(
-                color_inactive.0 .0 as f32,
-                color_inactive.0 .1 as f32,
-                color_inactive.0 .2 as f32,
+            Color::from_rgba(
+                color_inactive[0].red,
+                color_inactive[0].green,
+                color_inactive[0].blue,
+                color_inactive[0].alpha,
             ),
-            Color::from_rgb(
-                color_inactive.1 .0 as f32,
-                color_inactive.1 .1 as f32,
-                color_inactive.1 .2 as f32,
+            Color::from_rgba(
+                color_inactive[1].red,
+                color_inactive[1].green,
+                color_inactive[1].blue,
+                color_inactive[1].alpha,
             ),
         );
     }
@@ -1254,6 +1396,7 @@ pub struct SimpleLayer {
     dconf: *mut DConfClient,
     shared_data: SharedData,
     bar_settings: BarSettings,
+    matcher: nucleo_matcher::Matcher,
 }
 
 impl SimpleLayer {
@@ -1302,7 +1445,7 @@ impl SimpleLayer {
                     },
                     Shaping::Basic,
                 )
-                .0,
+                .width,
             iced,
             tag_count: 9,
             bar_settings,
@@ -1313,6 +1456,11 @@ impl SimpleLayer {
             output_map: HashMap::new(),
             znet_map: HashMap::new(),
             output_type_map: HashMap::new(),
+            matcher: nucleo_matcher::Matcher::new({
+                let mut config = nucleo_matcher::Config::DEFAULT;
+                config.prefer_prefix = true;
+                config
+            }),
         }
     }
 
@@ -1345,7 +1493,6 @@ impl SimpleLayer {
                 apps,
                 layout,
                 current_input,
-                matcher,
                 selected,
             } => {
                 layout.clear();
@@ -1365,7 +1512,7 @@ impl SimpleLayer {
                         },
                         Shaping::Basic,
                     )
-                    .0;
+                    .width;
 
                 layout.push(Primitive::Quad {
                     bounds: Rectangle {
@@ -1398,66 +1545,80 @@ impl SimpleLayer {
                 });
 
                 let mut width_at = (self.bar_settings.padding_x * 2.0) + width;
-                let query = FuzzyQuery::new(&current_input);
-                for app in apps.iter_mut() {
-                    app.score = query.fuzzy_match(&app.name, matcher);
-                }
-                apps.sort_unstable_by(|a, b| b.score.cmp(&a.score));
+                let query = Pattern::parse(
+                    &current_input,
+                    nucleo_matcher::pattern::CaseMatching::Ignore,
+                );
 
-                for (index, item) in (&apps[..15]).into_iter().enumerate() {
-                    if item.score.is_some() {
-                        let measurement = self
-                            .iced
-                            .measure(
-                                &item.name,
-                                self.iced.default_size(),
-                                LineHeight::Relative(1.0),
-                                self.iced.default_font(),
-                                Size {
-                                    width: f32::INFINITY,
-                                    height: f32::INFINITY,
-                                },
-                                Shaping::Basic,
-                            )
-                            .0;
-                        if index == *selected {
-                            layout.push(Primitive::Quad {
-                                bounds: Rectangle {
-                                    x: width_at,
-                                    y: 0.0,
-                                    width: (self.bar_settings.padding_x * 2.0) + measurement,
-                                    height: logical_height,
-                                },
-                                background: Background::Color(self.bar_settings.color_active.1),
-                                border_radius: [0.0, 0.0, 0.0, 0.0],
-                                border_width: 0.0,
-                                border_color: Color::TRANSPARENT,
-                            });
-                        }
-                        width_at += self.bar_settings.padding_x;
-                        layout.push(Primitive::Text {
-                            content: item.name.clone(),
+                #[inline(always)]
+                fn map_project_query(
+                    cart: yoke::Yoke<Commands<'static>, Vec<DesktopCommand>>,
+                    matcher: &mut nucleo_matcher::Matcher,
+                    query: Pattern,
+                ) -> yoke::Yoke<Commands<'static>, Vec<DesktopCommand>> {
+                    cart.map_project(|cart, _| {
+                        Commands(cart.0, query.match_list(cart.0.iter(), matcher))
+                    })
+                }
+
+                let mut apps_old: yoke::Yoke<Commands<'static>, Vec<DesktopCommand>> =
+                    yoke::Yoke::attach_to_cart(Vec::new(), |cart| Commands(cart, Vec::new()));
+                core::mem::swap(&mut apps_old, apps);
+                *apps = map_project_query(apps_old, &mut self.matcher, query);
+                let apps = apps.get();
+                for (index, (item, _)) in (&apps.1[..15.min(apps.1.len())]).into_iter().enumerate()
+                {
+                    let measurement = self
+                        .iced
+                        .measure(
+                            &item.name,
+                            self.iced.default_size(),
+                            LineHeight::Relative(1.0),
+                            self.iced.default_font(),
+                            Size {
+                                width: f32::INFINITY,
+                                height: f32::INFINITY,
+                            },
+                            Shaping::Basic,
+                        )
+                        .width;
+                    if index == *selected {
+                        layout.push(Primitive::Quad {
                             bounds: Rectangle {
                                 x: width_at,
-                                y: logical_height / 2.0,
-                                width: f32::INFINITY,
+                                y: 0.0,
+                                width: (self.bar_settings.padding_x * 2.0) + measurement,
                                 height: logical_height,
                             },
-                            color: if index == *selected {
-                                self.bar_settings.color_active.0
-                            } else {
-                                self.bar_settings.color_inactive.0
-                            },
-                            size: self.iced.default_size(),
-                            line_height: LineHeight::Relative(1.0),
-                            font: self.iced.default_font(),
-                            horizontal_alignment: Horizontal::Left,
-                            vertical_alignment: Vertical::Center,
-                            shaping: Shaping::Basic,
+                            background: Background::Color(self.bar_settings.color_active.1),
+                            border_radius: [0.0, 0.0, 0.0, 0.0],
+                            border_width: 0.0,
+                            border_color: Color::TRANSPARENT,
                         });
-                        width_at += measurement;
-                        width_at += self.bar_settings.padding_x;
                     }
+                    width_at += self.bar_settings.padding_x;
+                    layout.push(Primitive::Text {
+                        content: item.name.clone(),
+                        bounds: Rectangle {
+                            x: width_at,
+                            y: logical_height / 2.0,
+                            width: f32::INFINITY,
+                            height: logical_height,
+                        },
+                        color: if index == *selected {
+                            self.bar_settings.color_active.0
+                        } else {
+                            self.bar_settings.color_inactive.0
+                        },
+                        size: self.iced.default_size(),
+                        line_height: LineHeight::Relative(1.0),
+                        font: self.iced.default_font(),
+                        horizontal_alignment: Horizontal::Left,
+                        vertical_alignment: Vertical::Center,
+                        shaping: Shaping::Basic,
+                    });
+                    width_at += measurement;
+                    width_at += self.bar_settings.padding_x;
                 }
             }
             _ => unreachable!(),
@@ -1817,7 +1978,7 @@ impl KeyboardHandler for SimpleLayer {
         event: KeyEvent,
     ) {
         let monitor = self.monitors.values_mut().find(|o| o.selected).unwrap();
-        match dbg!(event.keysym) {
+        match event.keysym {
             keysyms::XKB_KEY_Escape => {
                 monitor.bar_state = BarState::Normal;
                 monitor
@@ -1864,10 +2025,10 @@ impl KeyboardHandler for SimpleLayer {
             },
             keysyms::XKB_KEY_Return => match &mut monitor.bar_state {
                 BarState::AppLauncher { apps, selected, .. } => {
-                    let app = apps.get(*selected).unwrap();
+                    let app = apps.get().1.get(*selected).unwrap();
 
                     std::process::Command::new("sh")
-                        .args(&["-c", &app.command])
+                        .args(&["-c", &app.0.command])
                         .spawn()
                         .unwrap();
 
@@ -2550,6 +2711,26 @@ impl
         match event {
             znet_dwl::znet_tapesoftware_dwl_wm_v1::Event::Tag { count } => {
                 state.tag_count = count as usize;
+                for monitor in state.monitors.values_mut() {
+                    monitor.tags.relayout(
+                        state.bar_settings.padding_x,
+                        state.bar_size.height,
+                        &state.iced,
+                        state.ascii_font_width,
+                        state.tag_count,
+                    );
+
+                    if !monitor.output.frame_req {
+                        monitor
+                            .output
+                            .layer_surface
+                            .wl_surface()
+                            .frame(qh, monitor.output.layer_surface.wl_surface().clone());
+                        monitor.output.frame_req = true;
+                    }
+
+                    monitor.output.layer_surface.commit();
+                }
             }
             znet_dwl::znet_tapesoftware_dwl_wm_v1::Event::Layout { name } => {
                 state.layouts.push(name);
@@ -2626,7 +2807,6 @@ impl
                                                     items.push(DesktopCommand {
                                                         name: name.into_owned(),
                                                         command,
-                                                        score: None,
                                                     });
                                                 }
                                             }
@@ -2636,9 +2816,10 @@ impl
                                 },
                             );
                             monitor.bar_state = BarState::AppLauncher {
-                                apps,
+                                apps: yoke::Yoke::attach_to_cart(apps, |cart| {
+                                    Commands(cart, Vec::new())
+                                }),
                                 current_input: String::new(),
-                                matcher: SkimMatcherV2::default(),
                                 layout: Vec::new(),
                                 selected: 0,
                             };
@@ -2654,6 +2835,56 @@ impl
                                 monitor.is_in_overlay = true;
                             }
                             monitor.output.frame(qh);
+                            return;
+                        }
+                        WobCommand::PowerButton => {
+                            monitor.output.frame(qh);
+                            if monitor.info_output.is_none() {
+                                let surface = state.compositor_state.create_surface(&qh);
+                                let info_layer = state.layer_shell.create_layer_surface(
+                                    &qh,
+                                    surface,
+                                    Layer::Overlay,
+                                    None::<String>,
+                                    Some(&monitor.wl_output),
+                                );
+
+                                info_layer.set_anchor(Anchor::all());
+                                info_layer.set_size(
+                                    512 + (state.bar_settings.padding_y as u32 * 2),
+                                    256 + (state.bar_settings.padding_y as u32 * 2),
+                                );
+                                info_layer.set_keyboard_interactivity(KeyboardInteractivity::None);
+
+                                info_layer.commit();
+                                state.output_type_map.insert(
+                                    info_layer.wl_surface().id(),
+                                    OutputType::Info(
+                                        monitor.output.layer_surface.wl_surface().id(),
+                                    ),
+                                );
+                                let viewport = Viewport::with_physical_size(
+                                    Size {
+                                        width: (512 + (state.bar_settings.padding_y as u32 * 2))
+                                            * monitor.output.viewport.scale_factor() as u32,
+                                        height: (256 + (state.bar_settings.padding_y as u32 * 2))
+                                            * monitor.output.viewport.scale_factor() as u32,
+                                    },
+                                    monitor.output.viewport.scale_factor(),
+                                );
+                                monitor.info_output = Some(Output {
+                                    layer_surface: info_layer,
+                                    frame_req: false,
+                                    mask: Mask::new(
+                                        viewport.physical_width(),
+                                        viewport.physical_height(),
+                                    )
+                                    .unwrap(),
+                                    first_configure: true,
+                                    buffers: None,
+                                    viewport,
+                                });
+                            }
                             return;
                         }
                     })

@@ -6,13 +6,6 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use calloop::{
-    channel::{Channel, Sender},
-    timer::Timer,
-    EventLoop,
-};
-#[cfg(feature = "connman")]
-use dbus::message::MatchRule;
 use id3::{Content, Tag};
 use libmpv::{
     events::{Event, PropertyData},
@@ -21,16 +14,13 @@ use libmpv::{
 use libmpv_sys::mpv_handle;
 use serde::Serialize;
 
-#[cfg(feature = "connman")]
-mod connman;
-
 #[derive(Debug)]
 struct ListenbrainzData {
     payload: Payload,
     scrobble: bool,
     token: String,
     cache_path: PathBuf,
-    online: bool,
+    timeout: bool,
     scrobble_deadline: Instant,
     pause_instant: Instant,
 }
@@ -51,7 +41,7 @@ impl Default for ListenbrainzData {
                     Path::new("/storage/emulated/0").join("listenbrainz")
                 }
             },
-            online: false,
+            timeout: true,
             scrobble_deadline: Instant::now(),
             pause_instant: Instant::now(),
         }
@@ -113,27 +103,19 @@ impl Default for AdditionalInfo {
     }
 }
 
-fn scrobble(
-    listen_type: &'static str,
-    payload: &Payload,
-    online: bool,
-    token: &str,
-    cache_path: &Path,
-) {
+fn scrobble(listen_type: &'static str, payload: &Payload, token: &str, cache_path: &Path) {
     let send = ListenbrainzSingleListen {
         listen_type,
         payload: [payload],
     };
     #[cfg(debug_assertions)]
     eprintln!("{}", serde_json::to_string_pretty(&send).unwrap());
-    if online {
-        let status = ureq::post("https://api.listenbrainz.org/1/submit-listens")
-            .set("Authorization", token)
-            .send_json(send);
-        if status.is_ok() {
-            import_cache(token, cache_path);
-            return;
-        }
+    let status = ureq::post("https://api.listenbrainz.org/1/submit-listens")
+        .set("Authorization", token)
+        .send_json(send);
+    if status.is_ok() {
+        import_cache(token, cache_path);
+        return;
     }
     if let Some(listened_at) = payload.listened_at {
         serde_json::to_writer(
@@ -236,47 +218,9 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
     mpv.event_context()
         .observe_property("speed", libmpv::Format::Double, 0)
         .unwrap();
-    let mut event_loop = EventLoop::<ListenbrainzData>::try_new().unwrap();
-    let handle = event_loop.handle();
-    let timer = Timer::from_duration(Duration::from_secs(31_536_000));
-    let mut timer = handle
-        .insert_source(timer, |_event, _metadata, _data| {
-            panic!(
-                "Something has gone horibbly wrong, somehow, mpv has been loading for an entire \
-                 year!"
-            );
-        })
-        .unwrap();
-    let (tx, rx): (Sender<()>, Channel<()>) = calloop::channel::channel();
+    let this_thread = std::thread::current();
     mpv.event_context_mut()
-        .set_wakeup_callback(move || tx.send(()).unwrap());
-    let signal = event_loop.get_signal();
-
-    let rx_handle = event_loop.handle();
-
-    fn timer_event(
-        _event: Instant,
-        _metadata: &mut (),
-        data: &mut ListenbrainzData,
-    ) -> calloop::timer::TimeoutAction {
-        if data.scrobble {
-            data.payload.listened_at = NonZeroU64::new(
-                SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-            );
-            scrobble(
-                "single",
-                &data.payload,
-                data.online,
-                &data.token,
-                &data.cache_path,
-            );
-        }
-        data.scrobble = false;
-        calloop::timer::TimeoutAction::Drop
-    }
+        .set_wakeup_callback(move || this_thread.unpark());
 
     let mut data = ListenbrainzData::default();
 
@@ -315,10 +259,31 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
         std::fs::create_dir(&data.cache_path).unwrap();
     }
 
-    handle
-        .insert_source(rx, move |_event, _metadata, data| loop {
+    import_cache(&data.token, &data.cache_path);
+
+    loop {
+        if data.timeout {
+            if Instant::now() >= data.scrobble_deadline {
+                std::thread::park();
+            } else {
+                std::thread::park_timeout(data.scrobble_deadline.duration_since(Instant::now()));
+            }
+        } else {
+            std::thread::park();
+        }
+
+        if data.scrobble && Instant::now() >= data.scrobble_deadline {
+            data.payload.listened_at = NonZeroU64::new(
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            );
+            scrobble("single", &data.payload, &data.token, &data.cache_path);
+            data.scrobble = false;
+        } else {
             match mpv.event_context_mut().wait_event(0.0) {
-                Some(Ok(Event::Shutdown)) => signal.stop(),
+                Some(Ok(Event::Shutdown)) => break,
                 Some(Ok(Event::ClientMessage(m))) => {
                     if m[0] == "key-binding" {
                         let score = match m[1] {
@@ -350,11 +315,6 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
                             score,
                         };
 
-                        if !data.online {
-                            eprintln!("You must be online to submit feedback");
-                            continue;
-                        }
-
                         let status = ureq::post(
                             "https://api.listenbrainz.org/1/feedback/recording-feedback",
                         )
@@ -376,16 +336,11 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
 
                         if paused {
                             data.pause_instant = Instant::now();
-                            rx_handle.remove(timer);
+                            data.timeout = false;
                         } else {
                             data.scrobble_deadline =
                                 data.scrobble_deadline + data.pause_instant.elapsed();
-                            timer = rx_handle
-                                .insert_source(
-                                    Timer::from_deadline(data.scrobble_deadline),
-                                    timer_event,
-                                )
-                                .unwrap();
+                            data.timeout = true;
                         }
                     } else if name == "speed" && data.scrobble {
                         let PropertyData::Double(speed) = change else {
@@ -398,17 +353,11 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
                             + Duration::from_secs_f64(scrobble_duration!(duration, speed) - pos);
                         data.payload.track_metadata.additional_info.duration_ms =
                             (duration * 1000.0) as u64;
-                        timer = rx_handle
-                            .insert_source(
-                                Timer::from_deadline(data.scrobble_deadline),
-                                timer_event,
-                            )
-                            .unwrap();
+                        data.timeout = true;
                     }
                 }
                 Some(Ok(Event::Seek)) => {
                     if mpv.get_property::<i64>("time-pos").unwrap() == 0 {
-                        rx_handle.remove(timer);
                         let duration = mpv.get_property::<f64>("duration").unwrap();
                         let speed = mpv.get_property::<f64>("speed").unwrap();
 
@@ -416,18 +365,13 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
                             + Duration::from_secs_f64(scrobble_duration!(duration, speed));
                         data.payload.track_metadata.additional_info.duration_ms =
                             (duration * 1000.0) as u64;
-                        timer = rx_handle
-                            .insert_source(
-                                Timer::from_deadline(data.scrobble_deadline),
-                                timer_event,
-                            )
-                            .unwrap();
+                        data.timeout = true;
                     }
                 }
                 Some(Ok(Event::FileLoaded)) => {
                     let audio_pts: Result<i64, libmpv::Error> = mpv.get_property("audio-pts");
                     if audio_pts.is_err() || audio_pts.unwrap() < 1 {
-                        rx_handle.remove(timer);
+                        data.timeout = false;
 
                         data.payload.track_metadata.additional_info.release_mbid = String::new();
                         data.payload.track_metadata.additional_info.artist_mbids = Vec::new();
@@ -533,7 +477,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
                         {
                             let filename: MpvStr = mpv.get_property("path").unwrap();
 
-                            let _ = read_recording_id(&filename, data);
+                            let _ = read_recording_id(&filename, &mut data);
                         }
 
                         if data.scrobble {
@@ -544,96 +488,18 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
                                 + Duration::from_secs_f64(scrobble_duration!(duration, speed));
                             data.payload.track_metadata.additional_info.duration_ms =
                                 (duration * 1000.0) as u64;
-                            timer = rx_handle
-                                .insert_source(
-                                    Timer::from_deadline(data.scrobble_deadline),
-                                    timer_event,
-                                )
-                                .unwrap();
+                            data.timeout = true;
 
-                            if data.online {
-                                data.payload.listened_at = None;
-                                scrobble(
-                                    "playing_now",
-                                    &data.payload,
-                                    data.online,
-                                    &data.token,
-                                    &data.cache_path,
-                                );
-                            }
+                            data.payload.listened_at = None;
+                            scrobble("playing_now", &data.payload, &data.token, &data.cache_path);
                         }
                     }
                 }
                 None => break,
                 _ => {}
             }
-        })
-        .unwrap();
-
-    data.online = true;
-
-    #[cfg(feature = "connman")]
-    {
-        data.online = {
-            let (system_connection, _sender): (calloop_dbus::DBusSource<()>, _) =
-                calloop_dbus::DBusSource::new_system().unwrap();
-            let connman_proxy =
-                system_connection.with_proxy("net.connman", "/", Duration::from_secs(5));
-            let properties = connman_proxy
-                .method_call("net.connman.Manager", "GetProperties", ())
-                .and_then(|r: (dbus::arg::PropMap,)| Ok(r.0))
-                .unwrap();
-            system_connection
-                .add_match::<connman::NetConnmanManagerPropertyChanged, _>(
-                    MatchRule::new_signal("net.connman.Manager", "PropertyChanged"),
-                    |_, _, _| true,
-                )
-                .unwrap();
-
-            let state = properties
-                .get("State")
-                .unwrap()
-                .0
-                .as_str()
-                .unwrap_or_default();
-
-            handle
-                .insert_source(system_connection, |event, _metadata, data| {
-                    if let Some(member) = event.member() {
-                        if &*member == "PropertyChanged" {
-                            let property: connman::NetConnmanManagerPropertyChanged =
-                                event.read_all().unwrap();
-                            if property.name == "State" {
-                                let val = property.value.0.as_str().unwrap();
-                                data.online = val == "ready" || val == "online";
-                                if data.online {
-                                    import_cache(&data.token, &data.cache_path);
-                                    if data.scrobble {
-                                        data.payload.listened_at = None;
-                                        scrobble(
-                                            "playing_now",
-                                            &data.payload,
-                                            data.online,
-                                            &data.token,
-                                            &data.cache_path,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    None
-                })
-                .unwrap();
-            state == "ready" || state == "online"
-        };
-    }
-    drop(handle);
-
-    if data.online {
-        import_cache(&data.token, &data.cache_path);
+        }
     }
 
-    event_loop.run(None, &mut data, |_| {}).unwrap();
     return 0;
 }

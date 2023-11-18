@@ -1,0 +1,13 @@
+#!/bin/execlineb -S0
+
+/bin/multisubstitute
+{
+  importas -i USER USER
+  importas -sCuD "n3 s2000000 T" DIRECTIVES DIRECTIVES
+
+}
+
+ifelse { test -w /tmp/${USER}/log } {
+    foreground { mkdir -p /tmp/${USER}/log/psd }
+    exec -c s6-log -d3 -b -- ${DIRECTIVES} /tmp/${USER}/log/psd
+}

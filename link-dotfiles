@@ -15,7 +15,7 @@ rm -rf ~/.icons/default
 ln -sf /usr/share/icons/default/ ~/.icons/default
 dconf load /org/gnome/desktop/interface/ < /usr/share/dotfiles/dconf.ini
 xdg-user-dirs-update
-LIBREWOLF_DEFAULT_RELEASE=$(find ~/.librewolf -name "*.default-release")
+LIBREWOLF_DEFAULT_RELEASE=$(find ~/.firedragon -name "*.default-release")
 if [ -z $LIBREWOLF_DEFAULT_RELEASE ]; then
   echo "Once LibreWolf has run once, run /usr/share/dotfiles/link-dotfiles" unlink $LIBREWOLF_DEFAULT_RELEASE/chrome
 else

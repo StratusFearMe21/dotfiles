@@ -1,6 +1,6 @@
 pkgname=dotfiles
-pkgver=1.6.0
-pkgrel=62
+pkgver=1.18.1
+pkgrel=9
 pkgdesc='All my dotfiles as one package'
 arch=('any')
 install=dotfiles.install
@@ -27,7 +27,7 @@ depends=(
   wpa_supplicant
   playerctl
   foot
-  librewolf
+  firedragon
   thunar
   thunar-archive-plugin
   thunar-volman
@@ -95,6 +95,8 @@ depends=(
   materia-gtk-theme
   papirus-icon-theme
   qt5ct
+  elogind
+  # profile-sync-daemon
 )
 makedepends=(
   mold
@@ -162,4 +164,5 @@ package() {
   install -Dm644 ../dconf/dotfiles.somebar.gschema.xml "$pkgdir/usr/share/glib-2.0/schemas/dotfiles.somebar.gschema.xml"
   install -Dm644 ../dconf/dotfiles.dwl.gschema.xml "$pkgdir/usr/share/glib-2.0/schemas/dotfiles.dwl.gschema.xml"
   install -Dm755 ../link-dotfiles "$pkgdir/usr/share/dotfiles/link-dotfiles"
+  install -Dm644 ../dwl-portals.conf "$pkgdir/usr/share/xdg-desktop-portal/dwl-portals.conf"
 }

@@ -1,3 +1,5 @@
 #!/bin/execlineb -P
 fdmove -c 2 1
+importas -i HOME HOME
+cd $HOME
 exec /usr/bin/rustbar

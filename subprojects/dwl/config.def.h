@@ -1,11 +1,17 @@
+/* Taken from https://github.com/djpohly/dwl/issues/466 */
+#define COLOR(hex)    { ((hex >> 24) & 0xFF) / 255.0f, \
+                        ((hex >> 16) & 0xFF) / 255.0f, \
+                        ((hex >> 8) & 0xFF) / 255.0f, \
+                        (hex & 0xFF) / 255.0f }
 /* appearance */
 static const int sloppyfocus               = 1;  /* focus follows mouse */
 static const int bypass_surface_visibility = 0;  /* 1 means idle inhibitors will disable idle tracking even if it's surface isn't visible  */
 static const unsigned int borderpx         = 1;  /* border pixel of windows */
-static const float bordercolor[]           = {0.5, 0.5, 0.5, 1.0};
-static const float focuscolor[]            = {1.0, 0.0, 0.0, 1.0};
+static const float bordercolor[]           = COLOR(0x444444ff);
+static const float focuscolor[]            = COLOR(0x005577ff);
+static const float urgentcolor[]           = COLOR(0xff0000ff);
 /* To conform the xdg-protocol, set the alpha to zero to restore the old behavior */
-static const float fullscreen_bg[]         = {0.1, 0.1, 0.1, 1.0};
+static const float fullscreen_bg[]         = {0.1, 0.1, 0.1, 1.0}; /* You can also use glsl colors */
 
 /* Autostart */
 static const char *const autostart[] = {
@@ -15,6 +21,11 @@ static const char *const autostart[] = {
 
 /* tagging - tagcount must be no greater than 31 */
 static const int tagcount = 9;
+// Never use this in code
+#define TAGCOUNT {}
+
+/* logging */
+static int log_level = WLR_ERROR;
 
 static const Rule rules[] = {
 	/* app_id     title       tags mask     isfloating   monitor */
@@ -71,9 +82,9 @@ LIBINPUT_CONFIG_SCROLL_ON_BUTTON_DOWN
 static const enum libinput_config_scroll_method scroll_method = LIBINPUT_CONFIG_SCROLL_2FG;
 
 /* You can choose between:
-LIBINPUT_CONFIG_CLICK_METHOD_NONE       
-LIBINPUT_CONFIG_CLICK_METHOD_BUTTON_AREAS       
-LIBINPUT_CONFIG_CLICK_METHOD_CLICKFINGER 
+LIBINPUT_CONFIG_CLICK_METHOD_NONE
+LIBINPUT_CONFIG_CLICK_METHOD_BUTTON_AREAS
+LIBINPUT_CONFIG_CLICK_METHOD_CLICKFINGER
 */
 static const enum libinput_config_click_method click_method = LIBINPUT_CONFIG_CLICK_METHOD_BUTTON_AREAS;
 

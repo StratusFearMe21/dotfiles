@@ -30,6 +30,14 @@
       <value nick="LMR" value="1" />
     </enum>
 
+    <enum id="dotfiles.dwl.WlrootsLogLevel">
+      <value nick="Silent" value="0" />
+      <value nick="Error" value="1" />
+      <value nick="Info" value="2" />
+      <value nick="Debug" value="3" />
+      <value nick="Log Importance Last" value="4" />
+    </enum>
+
     <enum id="dotfiles.dwl.Modifier">
       <value nick="Shift" value="1" />
       <value nick="Caps" value="2" />
@@ -65,14 +73,14 @@
           Thickness of the border placed around windows
         </description>
       </key>
-      <key name="border-color" type="(dddd)">
-        <default>(0.337,0.357,0.078,1.0)</default>
+      <key name="border-color" type="s">
+        <default>"#565b14"</default>
       </key>
-      <key name="focus-color" type="(dddd)">
-        <default>(0.918,0.424,0.451,1.0)</default>
+      <key name="focus-color" type="s">
+        <default>"#ea6c73"</default>
       </key>
-      <key name="fullscreen-bg" type="(dddd)">
-        <default>(0.1,0.1,0.1,1.0)</default>
+      <key name="fullscreen-bg" type="s">
+        <default>"#1a1a1a"</default>
       </key>
       <key name="tag-count" type="i">
         <range min="1" max="18" />
@@ -112,6 +120,9 @@
       </key>
       <key name="middle-button-emulation" type="b">
         <default>true</default>
+      </key>
+      <key name="log-level" enum="dotfiles.dwl.WlrootsLogLevel">
+        <default>'Error'</default>
       </key>
       <key name="scroll-method" enum="dotfiles.dwl.ScrollMethod">
         <default>'Two Finger'</default>

@@ -6,9 +6,10 @@ use iced_tiny_skia::{
         text::{LineHeight, Shaping},
         Background, Color, Rectangle,
     },
-    graphics::{backend::Text, Primitive},
+    graphics::backend::Text,
+    /* Custom ,*/ Primitive,
 };
-use tiny_skia::{Paint, PathBuilder, Shader, Stroke, Transform};
+use tiny_skia::{Paint, PathBuilder, Stroke, Transform};
 
 use crate::znet_dwl::znet_tapesoftware_dwl_wm_monitor_v1::TagState;
 
@@ -200,6 +201,7 @@ impl Tags {
                 );
             }
 
+            /*
             let mut path = PathBuilder::new();
 
             for client in 0..tag.num_clients {
@@ -213,13 +215,14 @@ impl Tags {
             }
 
             if let Some(path) = path.finish() {
-                primitives.push(Primitive::Stroke {
+                primitives.push(Primitive::Custom(Custom::Stroke {
                     path,
                     paint,
                     stroke,
                     transform: Transform::default(),
-                });
+                }));
             }
+            */
         }
 
         self.tag_windows = Arc::new(Primitive::Group { primitives });
@@ -262,7 +265,7 @@ impl Tags {
         bar_size: f32,
         padding_x: f32,
     ) {
-        let mut new_tag = self.tags.get_mut(tag as usize).unwrap();
+        let new_tag = self.tags.get_mut(tag as usize).unwrap();
 
         new_tag.state = tag_state;
         new_tag.num_clients = num_clients;

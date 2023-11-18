@@ -1,0 +1,37 @@
+[language-server]
+ccls = { command = "ccls" }
+grezi = { command = "grezi", args = ["--lsp", "-d"] }
+
+[[language]]
+name = "c"
+language-servers = ["ccls"]
+
+[[language]]
+name = "cpp"
+language-servers = ["ccls"]
+
+[[language]]
+name = "grz"
+scope = "scope.grz"
+injection-regex = "grz"
+file-types = ["grz"]
+roots = []
+auto-format = true
+comment-token = "//"
+indent = { tab-width = 4, unit = "    " }
+language-servers = ["grezi"]
+
+[[grammer]]
+name = "grz"
+
+[[language]]
+name = "groff"
+scope = "scope.groff"
+injection-regex = "ms|groff|roff"
+file-types = ["ms", "mom", "groff"]
+roots = []
+comment-token = ".\\\""
+indent = { tab-width = 2, unit = "  " }
+
+[[grammer]]
+name = "groff"

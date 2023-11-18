@@ -128,10 +128,11 @@ impl BatteryBlock {
         }
     }
 
-    pub fn fmt(&self, f: &mut String) {
-        self.bat_devices.values().for_each(|i| {
+    pub fn fmt(&'static self) -> impl Iterator<Item = String> {
+        self.bat_devices.values().map(|i| {
+            let mut f = String::new();
             std::fmt::Write::write_fmt(
-                f,
+                &mut f,
                 format_args!(
                     " {}{}{}% ",
                     match_bat_type!(i),
@@ -141,11 +142,10 @@ impl BatteryBlock {
             )
             .unwrap();
             if i.state != BatteryState::Unknown {
-                std::fmt::Write::write_fmt(f, format_args!("{:?}{}", i.time, i.time)).unwrap();
+                std::fmt::Write::write_fmt(&mut f, format_args!("{:?}{}", i.time, i.time)).unwrap();
             }
-            f.push_str(" ");
-        });
-        f.pop();
+            f
+        })
     }
 
     pub fn fmt_table(&self, f: &mut BufWriter<UnixStream>) -> std::io::Result<()> {
@@ -278,9 +278,9 @@ pub enum TimeTo {
 impl Display for TimeTo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TimeTo::Empty(_) => write!(f, "󰁆"),
-            TimeTo::Full(_) => write!(f, "󰁞"),
-            TimeTo::Unknown => write!(f, "󰑓"),
+            TimeTo::Empty(_) => write!(f, "󰁆 "),
+            TimeTo::Full(_) => write!(f, "󰁞 "),
+            TimeTo::Unknown => write!(f, "󰑓 "),
         }
     }
 }

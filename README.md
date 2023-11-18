@@ -86,3 +86,9 @@ enum QueryAtomKind {
     Exact,
 }
 ```
+
+### Services behavior
+
+These dotfiles and my DWL build leverages `s6` in order to run user services. My DWL build will also use the `logind` API to facilitate a graceful shutdown. Basically, when you run the `shutdown` command directly, everything will stop and be killed by the shutdown daemon. However, if you use `loginctl poweroff`, DWL will gracefully shutdown all `s6` user services, and *then* proceed with the shutdown
+
+Basically, don't just run `shutdown` or `reboot`, use `loginctl` instead.

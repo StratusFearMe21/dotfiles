@@ -1,7 +1,0 @@
-vendor*
-target
-/result
-.cargo
-debian/cosmic-osd*
-debian/*debhelper*
-debian/files

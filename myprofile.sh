@@ -14,6 +14,6 @@ export RANLIB=llvm-ranlib
 export AR=llvm-ar
 export WAYLAND_DISPLAY=wayland-0
 export DISPLAY=:0
-export XDG_CURRENT_DESKTOP=wlroots
+export XDG_CURRENT_DESKTOP=dwl
 export QT_QPA_PLATFORMTHEME=qt5ct
 [ -f $HOME/.config/user-dirs.dirs ] && . $HOME/.config/user-dirs.dirs

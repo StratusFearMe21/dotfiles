@@ -190,16 +190,25 @@ impl TimeBlock {
     pub fn fmt(&self, f: &mut String) {
         f.push_str(match_clock!(self.now.hour()));
         self.now
-            .format_into(unsafe { f.as_mut_vec() }, TIME_FMT.as_ref())
+            .format_into(
+                unsafe { f.as_mut_vec() },
+                AsRef::<[time::format_description::FormatItem<'_>]>::as_ref(&TIME_FMT),
+            )
             .unwrap();
         f.push_str("  󰃶 ");
         if self.show_day {
             self.now
-                .format_into(unsafe { f.as_mut_vec() }, DATE_FMT_W_DAY.as_ref())
+                .format_into(
+                    unsafe { f.as_mut_vec() },
+                    AsRef::<[time::format_description::FormatItem<'_>]>::as_ref(&DATE_FMT_W_DAY),
+                )
                 .unwrap();
         } else {
             self.now
-                .format_into(unsafe { f.as_mut_vec() }, DATE_FMT.as_ref())
+                .format_into(
+                    unsafe { f.as_mut_vec() },
+                    AsRef::<[time::format_description::FormatItem<'_>]>::as_ref(&DATE_FMT),
+                )
                 .unwrap();
         }
         f.push(' ');
@@ -211,13 +220,28 @@ impl TimeBlock {
             include_str!("../table.txt"),
             match_clock!(self.now.hour()),
         )?;
-        self.now.format_into(f, TIME_FMT.as_ref()).unwrap();
+        self.now
+            .format_into(
+                f,
+                AsRef::<[time::format_description::FormatItem<'_>]>::as_ref(&TIME_FMT),
+            )
+            .unwrap();
         f.write_all(b"\n")?;
         write!(f, include_str!("../table.txt"), "󰃶 ")?;
         if self.show_day {
-            self.now.format_into(f, DATE_FMT_W_DAY.as_ref()).unwrap();
+            self.now
+                .format_into(
+                    f,
+                    AsRef::<[time::format_description::FormatItem<'_>]>::as_ref(&DATE_FMT_W_DAY),
+                )
+                .unwrap();
         } else {
-            self.now.format_into(f, DATE_FMT.as_ref()).unwrap();
+            self.now
+                .format_into(
+                    f,
+                    AsRef::<[time::format_description::FormatItem<'_>]>::as_ref(&DATE_FMT),
+                )
+                .unwrap();
         }
         f.write_all(b"\n")
     }
