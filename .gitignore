@@ -1,6 +1,6 @@
 .ccls-cache/
 dotfiles-*.pkg.tar.zst
-subprojects/libliftoff/
+# subprojects/libliftoff/
 # subprojects/wlroots/
 target/
 pkg/
