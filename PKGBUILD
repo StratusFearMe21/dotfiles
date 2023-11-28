@@ -1,6 +1,6 @@
 pkgname=dotfiles
-pkgver=1.18.1
-pkgrel=9
+pkgver=1.19.1
+pkgrel=1
 pkgdesc='All my dotfiles as one package'
 arch=('any')
 install=dotfiles.install
@@ -151,6 +151,7 @@ package() {
   install -Dm644 ../shell.desktop "$pkgdir/usr/share/wayland-sessions/shell.desktop"
   install -Dm644 ../doas.conf "$pkgdir/etc/doas.conf"
   install -Dm644 ../foot.ini "$pkgdir/usr/share/dotfiles/foot.ini"
+  install -Dm644 ../zathurarc "$pkgdir/etc/zathurarc"
   install -Dm755 ../env.nu "$pkgdir/usr/share/dotfiles/env.nu"
   install -Dm755 ../config.nu "$pkgdir/usr/share/dotfiles/config.nu"
   install -dm755 "$pkgdir/usr/share/dotfiles/chrome"

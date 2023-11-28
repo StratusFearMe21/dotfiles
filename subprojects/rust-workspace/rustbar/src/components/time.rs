@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use chrono::{DateTime, Local, Timelike};
 use rand::{rngs::OsRng, seq::SliceRandom};
 use smithay_client_toolkit::reexports::{
     calloop::{
@@ -15,13 +16,6 @@ use smithay_client_toolkit::reexports::{
         RegistrationToken,
     },
     client::QueueHandle,
-};
-use time::{
-    format_description::{
-        self,
-        modifier::{Day, Hour, Minute, Month, Weekday, Year},
-    },
-    OffsetDateTime, UtcOffset,
 };
 
 use crate::SimpleLayer;
@@ -60,42 +54,6 @@ macro_rules! match_clock {
     };
 }
 
-pub const TIME_FMT: [format_description::FormatItem; 3] = [
-    format_description::FormatItem::Component(format_description::Component::Hour({
-        let mut hour = Hour::default();
-        hour.is_12_hour_clock = true;
-        hour
-    })),
-    format_description::FormatItem::Literal(b":"),
-    format_description::FormatItem::Component(format_description::Component::Minute(
-        Minute::default(),
-    )),
-];
-
-pub const DATE_FMT: [format_description::FormatItem; 5] = [
-    format_description::FormatItem::Component(format_description::Component::Month(
-        Month::default(),
-    )),
-    format_description::FormatItem::Literal(b"/"),
-    format_description::FormatItem::Component(format_description::Component::Day(Day::default())),
-    format_description::FormatItem::Literal(b"/"),
-    format_description::FormatItem::Component(format_description::Component::Year(Year::default())),
-];
-
-pub const DATE_FMT_W_DAY: [format_description::FormatItem; 7] = [
-    format_description::FormatItem::Component(format_description::Component::Month(
-        Month::default(),
-    )),
-    format_description::FormatItem::Literal(b"/"),
-    format_description::FormatItem::Component(format_description::Component::Day(Day::default())),
-    format_description::FormatItem::Literal(b"/"),
-    format_description::FormatItem::Component(format_description::Component::Year(Year::default())),
-    format_description::FormatItem::Literal(b" "),
-    format_description::FormatItem::Component(format_description::Component::Weekday(
-        Weekday::default(),
-    )),
-];
-
 pub const NTP_SERVERS: [&str; 18] = [
     "time-a-g.nist.gov",
     "time-b-g.nist.gov",
@@ -121,8 +79,9 @@ pub struct TimeBlock {
     pub is_time_updated: bool,
     pub update_time_ntp: bool,
     pub time_servers: Vec<String>,
-    pub now: OffsetDateTime,
-    pub show_day: bool,
+    pub now: DateTime<Local>,
+    pub time_fmt: String,
+    pub date_fmt: String,
     pub x_at: f32,
     pub width: f32,
     handle: RegistrationToken,
@@ -131,17 +90,15 @@ pub struct TimeBlock {
 impl TimeBlock {
     pub fn new(
         handle: &LoopHandle<SimpleLayer>,
-        show_day: bool,
         update_time_ntp: bool,
         time_servers: Vec<String>,
+        time_fmt: String,
+        date_fmt: String,
         qh: Rc<QueueHandle<SimpleLayer>>,
     ) -> Self {
         let now_instant = Instant::now();
-        let now = time::OffsetDateTime::now_utc();
-        let timezone = tz::TimeZone::local().unwrap();
-        let time_offset = timezone.find_current_local_time_type().unwrap().ut_offset();
-        let now = now.to_offset(UtcOffset::from_whole_seconds(time_offset).unwrap());
-        let timer_start = now_instant + Duration::from_secs(60 - now.second() as u64);
+        let now = chrono::Local::now();
+        let timer_start = now_instant + Duration::from_secs(60 - now.time().second() as u64);
         /*
         // The only child process we spawn is ntpdate ever
         let chld_qh = Rc::clone(&qh);
@@ -164,7 +121,7 @@ impl TimeBlock {
                 Timer::from_deadline(timer_start),
                 move |_event, _metadata, shared_data| unsafe {
                     shared_data.shared_data.time.as_mut().unwrap_unchecked().now +=
-                        time::Duration::minutes(1);
+                        chrono::Duration::minutes(1);
                     shared_data.write_bar(Rc::clone(&qh).as_ref());
                     TimeoutAction::ToDuration(Duration::from_secs(60))
                 },
@@ -173,9 +130,10 @@ impl TimeBlock {
 
         Self {
             now,
-            show_day,
             update_time_ntp,
             time_servers,
+            time_fmt,
+            date_fmt,
             is_time_updated: false,
             handle,
             x_at: 0.0,
@@ -189,29 +147,14 @@ impl TimeBlock {
 
     pub fn fmt(&self, f: &mut String) {
         f.push_str(match_clock!(self.now.hour()));
-        self.now
-            .format_into(
-                unsafe { f.as_mut_vec() },
-                AsRef::<[time::format_description::FormatItem<'_>]>::as_ref(&TIME_FMT),
-            )
-            .unwrap();
-        f.push_str("  󰃶 ");
-        if self.show_day {
-            self.now
-                .format_into(
-                    unsafe { f.as_mut_vec() },
-                    AsRef::<[time::format_description::FormatItem<'_>]>::as_ref(&DATE_FMT_W_DAY),
-                )
-                .unwrap();
-        } else {
-            self.now
-                .format_into(
-                    unsafe { f.as_mut_vec() },
-                    AsRef::<[time::format_description::FormatItem<'_>]>::as_ref(&DATE_FMT),
-                )
-                .unwrap();
-        }
-        f.push(' ');
+        use std::fmt::Write;
+        write!(
+            f,
+            "{}  󰃶 {} ",
+            self.now.format(&self.time_fmt),
+            self.now.format(&self.date_fmt)
+        )
+        .unwrap();
     }
 
     pub fn fmt_table(&self, f: &mut BufWriter<UnixStream>) -> std::io::Result<()> {
@@ -220,30 +163,9 @@ impl TimeBlock {
             include_str!("../table.txt"),
             match_clock!(self.now.hour()),
         )?;
-        self.now
-            .format_into(
-                f,
-                AsRef::<[time::format_description::FormatItem<'_>]>::as_ref(&TIME_FMT),
-            )
-            .unwrap();
-        f.write_all(b"\n")?;
+        write!(f, "{}\n", self.now.format(&self.time_fmt),)?;
         write!(f, include_str!("../table.txt"), "󰃶 ")?;
-        if self.show_day {
-            self.now
-                .format_into(
-                    f,
-                    AsRef::<[time::format_description::FormatItem<'_>]>::as_ref(&DATE_FMT_W_DAY),
-                )
-                .unwrap();
-        } else {
-            self.now
-                .format_into(
-                    f,
-                    AsRef::<[time::format_description::FormatItem<'_>]>::as_ref(&DATE_FMT),
-                )
-                .unwrap();
-        }
-        f.write_all(b"\n")
+        write!(f, "{}\n", self.now.format(&self.date_fmt))
     }
 
     pub fn update_time(&mut self) {

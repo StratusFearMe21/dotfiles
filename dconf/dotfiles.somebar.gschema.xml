@@ -16,12 +16,18 @@
           no be updated longer appear in the status bar if set to false
         </description>
       </key>
-      <key name="time-show-day" type="b">
-        <default>true</default>
-        <summary>Show the day of the week in the time block</summary>
+      <key name="time-fmt" type="s">
+        <default>"%I:%M"</default>
+        <summary>The time format of the clock component</summary>
         <description>
-          Show the current system day of the week in the status bar, Setting
-          this block to false should have no performance impact
+          See https://docs.rs/chrono/0.4.31/chrono/format/strftime/index.html for the format
+        </description>
+      </key>
+      <key name="date-fmt" type="s">
+        <default>"%m/%d/%y %A"</default>
+        <summary>The date format of the date component</summary>
+        <description>
+          See https://docs.rs/chrono/0.4.31/chrono/format/strftime/index.html for the format
         </description>
       </key>
       <key name="update-time-ntp" type="b">

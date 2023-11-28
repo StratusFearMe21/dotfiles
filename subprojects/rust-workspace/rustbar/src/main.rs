@@ -280,10 +280,13 @@ impl SharedData {
             if dconf_read_variant(dconf, "/dotfiles/somebar/time-block").unwrap_or(true) {
                 time = Some(TimeBlock::new(
                     handle,
-                    dconf_read_variant(dconf, "/dotfiles/somebar/time-show-day").unwrap_or(true),
                     dconf_read_variant(dconf, "/dotfiles/somebar/update-time-ntp").unwrap_or(true),
                     dconf_read_variant(dconf, "/dotfiles/somebar/time-servers")
                         .unwrap_or(NTP_SERVERS.into_iter().map(|s| s.to_string()).collect()),
+                    dconf_read_variant(dconf, "/dotfiles/somebar/time-fmt")
+                        .unwrap_or("%I:%M".to_owned()),
+                    dconf_read_variant(dconf, "/dotfiles/somebar/date-fmt")
+                        .unwrap_or("%m/%d/%y %A".to_owned()),
                     Rc::clone(&qh),
                 ));
             }
@@ -385,11 +388,6 @@ impl SharedData {
                                         shared_data.shared_data.time = Some(TimeBlock::new(
                                             &loop_handle,
                                             dconf_read_variant(
-                                                shared_data.dconf,
-                                                "/dotfiles/somebar/time-show-day",
-                                            )
-                                            .unwrap_or(true),
-                                            dconf_read_variant(
                                                 dconf,
                                                 "/dotfiles/somebar/update-time-ntp",
                                             )
@@ -404,6 +402,10 @@ impl SharedData {
                                                     .map(|s| s.to_string())
                                                     .collect(),
                                             ),
+                                            dconf_read_variant(dconf, "/dotfiles/somebar/time-fmt")
+                                                .unwrap_or("%I:%M".to_owned()),
+                                            dconf_read_variant(dconf, "/dotfiles/somebar/date-fmt")
+                                                .unwrap_or("%m/%d/%y %A".to_owned()),
                                             Rc::clone(&qh),
                                         ));
                                     } else {
@@ -413,13 +415,23 @@ impl SharedData {
                                     }
                                     shared_data.write_bar(&qh);
                                 }
-                                "/dotfiles/somebar/time-show-day" => {
+                                "/dotfiles/somebar/date-fmt" => {
                                     if let Some(ref mut time) = shared_data.shared_data.time {
-                                        time.show_day = dconf_read_variant(
+                                        time.date_fmt = dconf_read_variant(
                                             shared_data.dconf,
-                                            "/dotfiles/somebar/time-show-day",
+                                            "/dotfiles/somebar/date-fmt",
                                         )
-                                        .unwrap_or(true);
+                                        .unwrap_or("%m/%d/%y %A".to_owned());
+                                        shared_data.write_bar(&qh);
+                                    }
+                                }
+                                "/dotfiles/somebar/time-fmt" => {
+                                    if let Some(ref mut time) = shared_data.shared_data.time {
+                                        time.time_fmt = dconf_read_variant(
+                                            shared_data.dconf,
+                                            "/dotfiles/somebar/time-fmt",
+                                        )
+                                        .unwrap_or("%I:%M".to_owned());
                                         shared_data.write_bar(&qh);
                                     }
                                 }
@@ -633,8 +645,6 @@ impl SharedData {
                                 time.unregister(&sys_handle);
                                 *time = TimeBlock::new(
                                     &sys_handle,
-                                    dconf_read_variant(dconf, "/dotfiles/somebar/time-show-day")
-                                        .unwrap_or(true),
                                     dconf_read_variant(dconf, "/dotfiles/somebar/update-time-ntp")
                                         .unwrap_or(true),
                                     dconf_read_variant(dconf, "/dotfiles/somebar/time-servers")
@@ -644,6 +654,10 @@ impl SharedData {
                                                 .map(|s| s.to_string())
                                                 .collect(),
                                         ),
+                                    dconf_read_variant(dconf, "/dotfiles/somebar/time-fmt")
+                                        .unwrap_or("%I:%M".to_owned()),
+                                    dconf_read_variant(dconf, "/dotfiles/somebar/date-fmt")
+                                        .unwrap_or("%m/%d/%y %A".to_owned()),
                                     Rc::clone(&sys_qh),
                                 );
                             }

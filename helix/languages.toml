@@ -4,10 +4,12 @@ grezi = { command = "grezi", args = ["--lsp", "-d"] }
 
 [[language]]
 name = "c"
+auto-format = true
 language-servers = ["ccls"]
 
 [[language]]
 name = "cpp"
+auto-format = true
 language-servers = ["ccls"]
 
 [[language]]

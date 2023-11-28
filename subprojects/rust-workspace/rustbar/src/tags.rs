@@ -9,7 +9,7 @@ use iced_tiny_skia::{
     graphics::backend::Text,
     /* Custom ,*/ Primitive,
 };
-use tiny_skia::{Paint, PathBuilder, Stroke, Transform};
+use tiny_skia::Paint;
 
 use crate::znet_dwl::znet_tapesoftware_dwl_wm_monitor_v1::TagState;
 
@@ -173,10 +173,6 @@ impl Tags {
 
         for (val, tag) in self.tags.iter().enumerate() {
             let pos_x = val as f32 * self.num_width;
-            let stroke = Stroke {
-                width: 1.0,
-                ..Default::default()
-            };
             let mut paint = Paint::default();
             paint.anti_alias = false;
             if matches!(tag.state, TagState::Active | TagState::Urgent) {
@@ -201,28 +197,26 @@ impl Tags {
                 );
             }
 
-            /*
-            let mut path = PathBuilder::new();
-
-            for client in 0..tag.num_clients {
-                let pos_y = client as f32 * 2.0;
-                path.move_to(pos_x, pos_y + 0.0001);
-                if tag.focused_client >= 0 && tag.focused_client as u32 == client {
-                    path.line_to(pos_x + padding_x, pos_y);
-                } else {
-                    path.line_to(pos_x + 1.0, pos_y);
-                }
+            if tag.num_clients > 0 {
+                primitives.push(Primitive::Quad {
+                    bounds: Rectangle {
+                        x: pos_x,
+                        y: 0.0,
+                        width: padding_x / 2.0,
+                        height: padding_x / 2.0,
+                    },
+                    background: match tag.state {
+                        TagState::None => Background::Color(Color::TRANSPARENT),
+                        _ => Background::Color(color_active),
+                    },
+                    border_radius: [0.0, 0.0, 0.0, 0.0],
+                    border_width: 1.0,
+                    border_color: match tag.state {
+                        TagState::None => color_inactive,
+                        _ => color_active,
+                    },
+                })
             }
-
-            if let Some(path) = path.finish() {
-                primitives.push(Primitive::Custom(Custom::Stroke {
-                    path,
-                    paint,
-                    stroke,
-                    transform: Transform::default(),
-                }));
-            }
-            */
         }
 
         self.tag_windows = Arc::new(Primitive::Group { primitives });
