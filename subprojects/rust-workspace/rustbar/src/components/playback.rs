@@ -75,9 +75,12 @@ impl PlaybackBlock {
 
     pub fn fmt_table(&self, f: &mut BufWriter<UnixStream>) -> std::io::Result<()> {
         write!(f, include_str!("../table.txt"), self.playing)?;
-        f.write_all(self.song_metadata.0.as_bytes())
-        // f.write_all(b" - ")?;
-        // f.write_all(self.song_metadata.1.as_bytes())
+        if self.playing != PlaybackStatus::Stopped {
+            f.write_all(self.song_metadata.0.as_bytes())?
+            // f.write_all(b" - ")?;
+            // f.write_all(self.song_metadata.1.as_bytes())
+        }
+        Ok(())
     }
 
     pub fn query_media(&mut self, event: dbus::Message) -> bool {

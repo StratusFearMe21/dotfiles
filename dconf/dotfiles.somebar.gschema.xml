@@ -115,5 +115,16 @@
           This should be in milliseconds
         </description>
       </key>
+      <key name="browser-path" type="s">
+        <default>".firedragon"</default>
+        <summary>The path to your browser configs relative to ~</summary>
+        <description>
+          Rustbar will look file *.default-release/places.sqlite within this directory 
+        </description>
+      </key>
+      <key name="browser" type="s">
+        <default>"firedragon"</default>
+        <summary>The binary name of the browser on the system</summary>
+      </key>
     </schema>
 </schemalist>

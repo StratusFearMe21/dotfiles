@@ -1,4 +1,5 @@
 .ccls-cache/
+node_modules/
 dotfiles-*.pkg.tar.zst
 # subprojects/libliftoff/
 # subprojects/wlroots/

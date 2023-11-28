@@ -1,10 +1,9 @@
 //
 use std::{
     ffi::{c_char, c_int, CStr},
+    mem::ManuallyDrop,
     time::Duration,
 };
-
-const FST: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/fst.fst"));
 
 use color::DefaultColorParser;
 use cssparser::{Parser, ParserInput};
@@ -16,7 +15,6 @@ use dbus::{
     MessageType, Path,
 };
 use dconf::CaDesrtDconfWriterNotify;
-use fst::Map;
 use logind::{OrgFreedesktopLogin1Manager, OrgFreedesktopLogin1ManagerPrepareForShutdown};
 use palette::IntoColor;
 
@@ -113,7 +111,8 @@ pub unsafe extern "C" fn get_fd() -> WatchFFI {
 #[no_mangle]
 pub unsafe extern "C" fn process_dbus_session(
     dbus_session: *mut SyncConnection,
-    function: extern "C" fn(c_int),
+    mut ts_parser: ManuallyDrop<tree_sitter::Parser>,
+    function: extern "C" fn(u16),
 ) {
     let dbus_session = Box::from_raw(dbus_session);
 
@@ -124,12 +123,16 @@ pub unsafe extern "C" fn process_dbus_session(
     {
         while let Some(message) = dbus_session.channel().pop_message() {
             if let Ok(msg) = message.read_all::<CaDesrtDconfWriterNotify>() {
-                let map = Map::new(FST).unwrap();
                 for c in msg.changes {
                     let mut prefix = msg.prefix.clone();
                     prefix.push_str(&c);
-                    if let Some(num) = map.get(prefix.as_bytes()) {
-                        function(num as c_int);
+                    if let Some(node_kind) = ts_parser
+                        .parse(&prefix, None)
+                        .as_ref()
+                        .and_then(|t| t.root_node().child(0))
+                        .map(|n| n.kind_id())
+                    {
+                        function(node_kind);
                     }
                 }
             }

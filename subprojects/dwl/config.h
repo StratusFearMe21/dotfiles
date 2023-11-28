@@ -48,7 +48,6 @@ static const MonitorRule monrules[] = {
 
 /* commands */
 static const char *termcmd[]    = { "footclient", NULL };
-static const char *browsercmd[] = { "firedragon", NULL };
 static const char *thunarcmd[]  = { "thunar", NULL };
 static const char *grimcmd[] = { "dash", "-c", "grim -g \"$(slurp -o)\"", NULL };
 static const char *lockcmd[] = { "waylock", NULL };
@@ -91,7 +90,7 @@ static const Key keys[] = {
 	{ 1, 0,                   XKB_KEY_period,     focusmon,       {.i = WLR_DIRECTION_RIGHT} },
 	{ 1, WLR_MODIFIER_SHIFT, XKB_KEY_less,       tagmon,         {.i = WLR_DIRECTION_LEFT} },
 	{ 1, WLR_MODIFIER_SHIFT, XKB_KEY_greater,    tagmon,         {.i = WLR_DIRECTION_RIGHT} },
-	{ 1, WLR_MODIFIER_SHIFT, XKB_KEY_Return,     spawn,          {.v = browsercmd} },
+	{ 1, WLR_MODIFIER_SHIFT, XKB_KEY_Return,     wob,            {.w = ZNET_TAPESOFTWARE_DWL_WM_V1_WOB_COMMAND_LAUNCH_BROWSER } },
 	{ 0, 0,                         XKB_KEY_XF86AudioRaiseVolume,  wob, {.w = ZNET_TAPESOFTWARE_DWL_WM_V1_WOB_COMMAND_VOLUME_UP } },
 	{ 0, 0,                         XKB_KEY_XF86AudioLowerVolume,  wob, {.w = ZNET_TAPESOFTWARE_DWL_WM_V1_WOB_COMMAND_VOLUME_DOWN } },
 	{ 0, 0,                         XKB_KEY_XF86AudioPlay,         spawn, {.v = audioplay} },

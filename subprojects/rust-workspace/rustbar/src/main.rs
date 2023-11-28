@@ -56,6 +56,7 @@ use iced_tiny_skia::{
 use memchr::memchr;
 use nucleo_matcher::pattern::Pattern;
 use palette::IntoColor;
+use rusqlite::OpenFlags;
 use smithay_client_toolkit::delegate_keyboard;
 use smithay_client_toolkit::globals::GlobalData;
 use smithay_client_toolkit::reexports::calloop::timer::TimeoutAction;
@@ -223,7 +224,9 @@ enum BarState {
         apps: yoke::Yoke<Commands<'static>, Vec<DesktopCommand>>,
         layout: Vec<Primitive>,
         current_input: String,
+        default: String,
         selected: usize,
+        prompt: &'static str,
     },
 }
 
@@ -421,9 +424,26 @@ impl SharedData {
                                             shared_data.dconf,
                                             "/dotfiles/somebar/date-fmt",
                                         )
-                                        .unwrap_or("%m/%d/%y %A".to_owned());
+                                        .unwrap_or_else(|| "%m/%d/%y %A".to_owned());
                                         shared_data.write_bar(&qh);
                                     }
+                                }
+                                "/dotfiles/somebar/browser-path" => {
+                                    shared_data.bar_settings.browser_path = dconf_read_variant(
+                                        shared_data.dconf,
+                                        "/dotfiles/somebar/browser-path",
+                                    )
+                                    .unwrap_or_else(|| ".firedragon".to_owned());
+                                }
+                                "/dotfiles/somebar/browser" => {
+                                    shared_data.bar_settings.browser = format!(
+                                        "{} ",
+                                        dconf_read_variant(
+                                            shared_data.dconf,
+                                            "/dotfiles/somebar/browser",
+                                        )
+                                        .unwrap_or_else(|| "firedragon".to_owned())
+                                    );
                                 }
                                 "/dotfiles/somebar/time-fmt" => {
                                     if let Some(ref mut time) = shared_data.shared_data.time {
@@ -431,7 +451,7 @@ impl SharedData {
                                             shared_data.dconf,
                                             "/dotfiles/somebar/time-fmt",
                                         )
-                                        .unwrap_or("%I:%M".to_owned());
+                                        .unwrap_or_else(|| "%I:%M".to_owned());
                                         shared_data.write_bar(&qh);
                                     }
                                 }
@@ -1233,6 +1253,8 @@ pub struct BarSettings {
     padding_x: f32,
     padding_y: f32,
     bar_show_time: u64,
+    browser_path: String,
+    browser: String,
     top_bar: bool,
 }
 
@@ -1323,6 +1345,13 @@ impl BarSettings {
             bar_show_time: dconf_read_variant(dconf, "/dotfiles/somebar/bar-show-time")
                 .unwrap_or(500),
             top_bar: dconf_read_variant(dconf, "/dotfiles/somebar/top-bar").unwrap_or(true),
+            browser_path: dconf_read_variant(dconf, "/dotfiles/somebar/browser-path")
+                .unwrap_or_else(|| ".firedragon".to_owned()),
+            browser: format!(
+                "{} ",
+                dconf_read_variant(dconf, "/dotfiles/somebar/browser")
+                    .unwrap_or_else(|| "firedragon".to_owned())
+            ),
         }
     }
 
@@ -1508,10 +1537,12 @@ impl SimpleLayer {
                 layout,
                 current_input,
                 selected,
+                prompt,
+                ..
             } => {
                 layout.clear();
                 let logical_height = monitor.output.viewport.logical_size().height;
-                let input_string = String::from("run: ") + current_input.as_str();
+                let input_string = format!("{}: {}", prompt, current_input);
 
                 let width = self
                     .iced
@@ -2038,13 +2069,23 @@ impl KeyboardHandler for SimpleLayer {
                 _ => {}
             },
             keysyms::XKB_KEY_Return => match &mut monitor.bar_state {
-                BarState::AppLauncher { apps, selected, .. } => {
-                    let app = apps.get().1.get(*selected).unwrap();
-
-                    std::process::Command::new("sh")
-                        .args(&["-c", &app.0.command])
-                        .spawn()
-                        .unwrap();
+                BarState::AppLauncher {
+                    apps,
+                    selected,
+                    default,
+                    current_input,
+                    ..
+                } => {
+                    if let Some((app, _)) = apps.get().1.get(*selected) {
+                        std::process::Command::new("sh")
+                            .args(["-c", &app.command])
+                            .spawn()
+                            .unwrap();
+                    } else {
+                        let _ = std::process::Command::new("sh")
+                            .args(["-c", &format!("{}{}", default, current_input)])
+                            .spawn();
+                    }
 
                     monitor.bar_state = BarState::Normal;
                     monitor
@@ -2348,6 +2389,11 @@ impl SimpleLayer {
                 self.bar_settings.color_inactive,
                 self.bar_settings.color_active,
                 self.bar_size.height,
+            );
+            monitor.tags.relayout_windows(
+                self.bar_settings.color_active.0,
+                self.bar_settings.color_inactive.0,
+                self.bar_settings.padding_x,
             );
 
             if !monitor.output.frame_req {
@@ -2833,9 +2879,71 @@ impl
                                 apps: yoke::Yoke::attach_to_cart(apps, |cart| {
                                     Commands(cart, Vec::new())
                                 }),
+                                default: String::new(),
                                 current_input: String::new(),
                                 layout: Vec::new(),
                                 selected: 0,
+                                prompt: "run"
+                            };
+                            monitor.output.frame(qh);
+                            state.layout_applauncher();
+                            return;
+                        }
+                        WobCommand::LaunchBrowser => {
+                            monitor
+                                .output
+                                .layer_surface
+                                .set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
+                            monitor.is_in_overlay = true;
+                            let path = format!(
+                                "echo file:$(realpath ~/{}/*.default-release/places.sqlite)?immutable=true",
+                                state.bar_settings.browser_path
+                            );
+                            let cmd = std::process::Command::new("sh")
+                                .args(["-c", &path])
+                                .output()
+                                .unwrap()
+                                .stdout;
+                            let conn =
+                                rusqlite::Connection::open_with_flags(String::from_utf8_lossy(&cmd).trim(), OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI)
+                                    .unwrap();
+                            let mut stmt = conn
+                                .prepare(
+                                    "SELECT \
+                                moz_bookmarks.title, \
+                                url \
+                                FROM moz_bookmarks \
+                                INNER JOIN \
+                                moz_places on \
+                                moz_bookmarks.fk = moz_places.id \
+                                ORDER BY frecency;",
+                                )
+                                .unwrap();
+
+                            let apps = stmt
+                                .query_map([], |row| {
+                                    Ok(DesktopCommand {
+                                        name: row.get(0).unwrap(),
+                                        command: format!(
+                                            "{}{}",
+                                            state.bar_settings.browser,
+                                            row.get::<_, String>(1).unwrap()
+                                        ),
+                                    })
+                                })
+                                .unwrap()
+                                .map(|d| d.unwrap())
+                                .collect();
+
+                            monitor.bar_state = BarState::AppLauncher {
+                                apps: yoke::Yoke::attach_to_cart(apps, |cart| {
+                                    Commands(cart, Vec::new())
+                                }),
+                                default: state.bar_settings.browser.clone(),
+                                current_input: String::new(),
+                                layout: Vec::new(),
+                                selected: 0,
+                                prompt: "browser"
                             };
                             monitor.output.frame(qh);
                             state.layout_applauncher();

@@ -67,6 +67,8 @@
 #include <xkbcommon/xkbcommon.h>
 #include "dbus/dbus-shared.h"
 #include "net-tapesoftware-dwl-wm-unstable-v1-protocol.h"
+#include <tree_sitter/api.h>
+#include "./tree-sitter-dconfdwl/src/parser.c"
 #ifdef XWAYLAND
 #include <wlr/xwayland.h>
 #include <xcb/xcb.h>
@@ -87,34 +89,6 @@
 /* enums */
 enum { CurNormal, CurPressed, CurMove, CurResize }; /* cursor */
 enum { XDGShell, LayerShell, X11Managed, X11Unmanaged }; /* client types */
-enum {
-	AccelProfile = 0,
-	AccelSpeed = 1,
-	BorderColor = 2,
-	BorderPx = 3,
-	ButtonMap = 4,
-	BypassSurfaceVisibility = 5,
-	ClickMethod = 6, 
-	DisableTrackpadWhileTyping = 7,
-	DragLock = 8,
-	FocusColor = 9,
-	FullscreenBg = 10,
-	LeftHanded = 11,
-	LogLevel = 12,
-	MiddleButtonEmulation = 13,
-	Modkey = 14,
-	MouseFollowsFocus = 15,
-	NaturalScrolling = 16,
-	RepeatDelay = 17,
-	RepeatRate = 18,
-	ScrollMethod = 19,
-	SendEventsMode = 20,
-	SloppyFocus = 21,
-	TagCount = 22,
-	TapToClick = 23,
-	TapToDrag = 24,
-	XkbOptions = 25,
-};
 enum { LyrBg, LyrBottom, LyrTile, LyrFloat, LyrFS, LyrTop, LyrOverlay, LyrBlock, NUM_LAYERS }; /* scene layers */
 #ifdef XWAYLAND
 enum { NetWMWindowTypeDialog, NetWMWindowTypeSplash, NetWMWindowTypeToolbar,
@@ -420,12 +394,13 @@ static void dwl_wm_bind(struct wl_client *client, void *data,
 static void dwl_wm_printstatus(Monitor *monitor);
 
 extern struct DBusWatchRs get_fd();
-extern void process_dbus_session(void *data_session, void (*func)(int));
+extern void process_dbus_session(void *data_session, TSParser *parser, void (*func)(int));
 extern void process_dbus_system(void *data_system, void (*prepare)(), void(*lock)());
 
 /* variables */
+static TSParser *parser;
+
 static const char broken[] = "broken";
-static const char *cursor_image = "left_ptr";
 static int locked;
 static void *exclusive_focus;
 static struct wl_display *dpy;
@@ -901,8 +876,13 @@ commitlayersurfacenotify(struct wl_listener *listener, void *data)
 		wlr_scene_node_reparent(&l->popups->node, (layer_surface->current.layer
 				< ZWLR_LAYER_SHELL_V1_LAYER_TOP ? layers[LyrTop] : scene_layer));
 	}
-
+	
 	arrangelayers(l->mon);
+
+	if (layer_surface->current.keyboard_interactive == ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE) {
+		focusclient(focustop(selmon), 1);
+	  motionnotify(0);
+  }
 }
 
 void
@@ -2159,7 +2139,7 @@ dbus_path_function(int path)
 	double c1, c2, c3, c4;
 	
 	switch (path) {
-		case AccelProfile:
+		case sym_accel_profile:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/accel-profile");
 
 			if (temp) {
@@ -2184,7 +2164,7 @@ dbus_path_function(int path)
 						libinput_device_config_accel_set_profile(libinput_device, accel_profile);
 				}
 			break;
-		case AccelSpeed:
+		case sym_accel_speed:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/accel-speed");
 
 			if (temp) {
@@ -2202,7 +2182,7 @@ dbus_path_function(int path)
 						libinput_device_config_accel_set_speed(libinput_device, accel_speed);
 				}
 			break;
-		case BorderColor:		
+		case sym_border_color:		
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/border-color");
 
 			if (temp) {
@@ -2226,7 +2206,7 @@ dbus_path_function(int path)
 				j++;
 			}
 			break;
-		case BorderPx:
+		case sym_border_px:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/border-px");
 
 			if (temp) {
@@ -2243,7 +2223,7 @@ dbus_path_function(int path)
 					c->geom.y + borderpx);
 			}
 			break;
-		case ButtonMap:
+		case sym_button_map:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/button-map");
 
 			if (temp) {
@@ -2266,7 +2246,7 @@ dbus_path_function(int path)
 						libinput_device_config_tap_set_button_map(libinput_device, button_map);
 				}
 			break;
-		case BypassSurfaceVisibility: 
+		case sym_bypass_surface_visibility: 
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/bypass-surface-visibility");
 
 			if (temp) {
@@ -2277,7 +2257,7 @@ dbus_path_function(int path)
 			}
 
 			break;
-		case ClickMethod:
+		case sym_click_method:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/click-method");
 
 			if (temp) {
@@ -2302,7 +2282,7 @@ dbus_path_function(int path)
 						libinput_device_config_click_set_method (libinput_device, click_method);
 				}
 			break;
-		case DisableTrackpadWhileTyping:
+		case sym_disable_trackpad_while_typing:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/disable-trackpad-while-typing");
 
 			if (temp) {
@@ -2320,7 +2300,7 @@ dbus_path_function(int path)
 						libinput_device_config_dwt_set_enabled(libinput_device, disable_while_typing);
 				}
 			break;
-		case DragLock:
+		case sym_drag_lock:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/drag-lock");
 
 			if (temp) {
@@ -2338,7 +2318,7 @@ dbus_path_function(int path)
 						libinput_device_config_tap_set_drag_lock_enabled(libinput_device, drag_lock);
 				}
 			break;
-		case FocusColor:
+		case sym_focus_color:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/focus-color");
 
 			if (temp) {
@@ -2362,7 +2342,7 @@ dbus_path_function(int path)
 				return;
 			}
 			break;
-		case FullscreenBg:
+		case sym_fullscreen_bg:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/fullscreen-bg");
 
 			if (temp) {
@@ -2382,7 +2362,7 @@ dbus_path_function(int path)
 			wl_list_for_each(m, &mons, link)
 				m->fullscreen_bg = wlr_scene_rect_create(layers[LyrFS], 0, 0, fullscreen_bg);
 			break;
-		case LeftHanded:
+		case sym_left_handed:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/left-handed");
 
 			if (temp) {
@@ -2400,7 +2380,7 @@ dbus_path_function(int path)
 						libinput_device_config_left_handed_set(libinput_device, left_handed);
 				}
 			break;
-		case LogLevel:
+		case sym_log_level:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/log-level");
 
 			if (temp) {
@@ -2423,7 +2403,7 @@ dbus_path_function(int path)
 
 			wlr_log_init(log_level, NULL);
 			break;
-		case MiddleButtonEmulation:
+		case sym_middle_button_emulation:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/middle-button-emulation");
 
 			if (temp) {
@@ -2441,7 +2421,7 @@ dbus_path_function(int path)
 						libinput_device_config_middle_emulation_set_enabled(libinput_device, middle_button_emulation);
 				}
 			break;
-		case Modkey:
+		case sym_modkey:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/modkey");
 
 			if (temp) {
@@ -2469,7 +2449,7 @@ dbus_path_function(int path)
 			}
 
 			break;
-		case MouseFollowsFocus:
+		case sym_mouse_follows_focus:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/mouse-follows-focus");
 
 			if (temp) {
@@ -2480,7 +2460,7 @@ dbus_path_function(int path)
 			}
 
 			break;
-		case NaturalScrolling:
+		case sym_natural_scrolling:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/natural-scrolling");
 
 			if (temp) {
@@ -2498,7 +2478,7 @@ dbus_path_function(int path)
 						libinput_device_config_scroll_set_natural_scroll_enabled(libinput_device, natural_scrolling);
 				}
 			break;
-		case RepeatDelay:
+		case sym_repeat_delay:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/repeat-delay");
 
 			if (temp) {
@@ -2515,7 +2495,7 @@ dbus_path_function(int path)
 						wl_display_get_event_loop(dpy), keyrepeat, kb);
 			}
 			break;
-		case RepeatRate:
+		case sym_repeat_rate:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/repeat-rate");
 
 			if (temp) {
@@ -2532,7 +2512,7 @@ dbus_path_function(int path)
 						wl_display_get_event_loop(dpy), keyrepeat, kb);
 			}
 			break;
-		case ScrollMethod:
+		case sym_scroll_method:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/scroll-method");
 
 			if (temp) {
@@ -2559,7 +2539,7 @@ dbus_path_function(int path)
 						libinput_device_config_scroll_set_method (libinput_device, scroll_method);
 				}
 			break;
-		case SendEventsMode:
+		case sym_send_events_mode:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/send-events-mode");
 
 			if (temp) {
@@ -2584,7 +2564,7 @@ dbus_path_function(int path)
 						libinput_device_config_send_events_set_mode(libinput_device, send_events_mode);
 				}
 			break;
-		case SloppyFocus:
+		case sym_sloppy_focus:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/sloppy-focus");
 
 			if (temp) {
@@ -2595,7 +2575,7 @@ dbus_path_function(int path)
 			}
 
 			break;
-		case TagCount:
+		case sym_tag_count:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/tag-count");
 
 			if (temp) {
@@ -2610,7 +2590,7 @@ dbus_path_function(int path)
 				printstatus();
 			}
 			break;
-		case TapToClick:
+		case sym_tap_to_click:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/tap-to-click");
 
 			if (temp) {
@@ -2628,7 +2608,7 @@ dbus_path_function(int path)
 						libinput_device_config_tap_set_enabled(libinput_device, tap_to_click);
 				}
 			break;
-		case TapToDrag:
+		case sym_tap_to_drag:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/tap-to-drag");
 
 			if (temp) {
@@ -2644,7 +2624,7 @@ dbus_path_function(int path)
 						libinput_device_config_tap_set_drag_enabled(libinput_device, tap_and_drag);
 				}
 			break;
-		case XkbOptions:
+		case sym_xkb_options:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/xkb-options");
 
 			if (temp) {
@@ -2677,7 +2657,7 @@ lock_fn()
 int
 dbus_watch_session(int fd, uint32_t mask, void *data)
 {
-	process_dbus_session(data, dbus_path_function);
+	process_dbus_session(data, parser, dbus_path_function);
 	return 0;
 }
 
@@ -3929,6 +3909,9 @@ main(int argc, char *argv[])
 {
 	unsetenv("WAYLAND_DISPLAY");
 	unsetenv("DISPLAY");
+	parser = ts_parser_new();
+	ts_parser_set_language(parser, tree_sitter_dconfdwl());
+	ts_parser_set_timeout_micros(parser, 500000);
 	int rfkill = open("/dev/rfkill", O_CLOEXEC);
 	if (rfkill < 0) {
 		die("open");

@@ -20,6 +20,9 @@ dbus_dep = dependency('dbus-1')
 dbus_dwl = subproject('rust-workspace')
 dbus_dwl_dep = dbus_dwl.get_variable('dbus_dwl')
 
+tree_sitter = subproject('tree-sitter', default_options: 'default_library=static')
+tree_sitter_dep = tree_sitter.get_variable('tree_sitter_dep')
+
 c_args = [
   '-DWLR_USE_UNSTABLE',
   '-D_POSIX_C_SOURCE=200809L',
@@ -45,6 +48,7 @@ executable('dwl',
     wlroots_dep,
     xkbcommon_dep,
     libinput_dep,
+    tree_sitter_dep,
   ],
   install : true,
   c_args : c_args

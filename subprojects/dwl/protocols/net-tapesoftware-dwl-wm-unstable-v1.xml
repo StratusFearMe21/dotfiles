@@ -46,6 +46,7 @@
             <entry name="launch_app" value="4" summary=""/>
             <entry name="overlay" value="5" summary="" />
             <entry name="power_button" value="6" summary="" />
+            <entry name="launch_browser" value="7" summary="" />
         </enum>
 
         <request name="release" type="destructor">
