@@ -1,4 +1,4 @@
 #!/bin/execlineb -S0
 importas -i ! !
-foreground { nu }
+foreground { fish }
 exec kill $!

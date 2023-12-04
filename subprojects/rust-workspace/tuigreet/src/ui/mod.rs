@@ -18,7 +18,7 @@ use ratatui::{
   backend::CrosstermBackend,
   layout::{Alignment, Constraint, Direction, Layout},
   style::{Modifier, Style},
-  text::{Span, Spans},
+  text::{Line, Span},
   widgets::Paragraph,
   Frame as CrosstermFrame, Terminal,
 };
@@ -39,7 +39,7 @@ const STATUSBAR_RIGHT_INDEX: usize = 2;
 
 pub(super) type Backend<'a> = CrosstermBackend<io::StdoutLock<'a>>;
 pub(super) type Term<'a> = Terminal<Backend<'a>>;
-pub(super) type Frame<'a, 'b> = CrosstermFrame<'a, Backend<'b>>;
+pub(super) type Frame<'a, 'b> = CrosstermFrame<'a>;
 
 pub async fn draw(greeter: Arc<RwLock<Greeter>>, terminal: &mut Term<'_>) -> Result<(), Box<dyn Error>> {
   let mut greeter = greeter.write().await;
@@ -89,7 +89,7 @@ pub async fn draw(greeter: Arc<RwLock<Greeter>>, terminal: &mut Term<'_>) -> Res
       .split(chunks[STATUSBAR_INDEX]);
 
     let command = greeter.command.clone().unwrap_or_else(|| "-".to_string());
-    let status_left_text = Spans::from(vec![
+    let status_left_text = Line::from(vec![
       status_label("ESC"),
       status_value(fl!("action_reset")),
       status_label("F2"),

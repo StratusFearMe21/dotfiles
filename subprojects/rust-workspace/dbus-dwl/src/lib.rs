@@ -183,7 +183,7 @@ pub unsafe extern "C" fn parse_color(
 ) {
     let mut reference =
         color::Color::LinSrgb(palette::Srgba::from_components((*c0, *c1, *c2, *c3)).into_linear());
-    if let Ok(color) = color::parse_color_with::<color::Color>(
+    if let Ok(color) = color::parse_color_with(
         &mut DefaultColorParser::new(Some(&mut reference)),
         &mut Parser::new(&mut ParserInput::new(
             CStr::from_ptr(color).to_str().unwrap_or_default(),

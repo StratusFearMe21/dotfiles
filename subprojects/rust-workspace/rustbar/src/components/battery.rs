@@ -87,8 +87,8 @@ macro_rules! match_battery {
 pub struct BatteryBlock {
     bat_devices: HashMap<dbus::Path<'static>, BatteryDevice>,
     match_handles: [dbus::channel::Token; 3],
-    pub x_at: f32,
-    pub width: f32,
+    pub xs_at: Vec<f32>,
+    pub widths: Vec<f32>,
 }
 
 impl BatteryBlock {
@@ -117,8 +117,8 @@ impl BatteryBlock {
         Self {
             bat_devices: shared_data,
             match_handles,
-            x_at: 0.0,
-            width: 0.0,
+            xs_at: Vec::new(),
+            widths: Vec::new(),
         }
     }
 

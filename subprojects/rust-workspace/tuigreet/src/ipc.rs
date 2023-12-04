@@ -118,7 +118,12 @@ impl Ipc {
           greeter.mode = Mode::Processing;
 
           #[cfg(not(debug_assertions))]
-          self.send(Request::StartSession { cmd: vec![command.clone()] }).await;
+          self
+            .send(Request::StartSession {
+              cmd: vec![command.clone()],
+              env: Vec::new(),
+            })
+            .await;
 
           #[cfg(debug_assertions)]
           {

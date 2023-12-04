@@ -1,7 +1,7 @@
 use calloop::{
     channel,
     generic::Generic,
-    PostAction, RegistrationToken, {EventSource, InsertError, Interest, Mode, Poll, Readiness},
+    PostAction, {EventSource, Interest, Mode, Poll, Readiness},
 };
 use dbus::{
     arg::ReadAll,
@@ -12,10 +12,10 @@ use dbus::{
     strings::{BusName, Interface, Member, Path},
     Error, Message,
 };
-use log::{trace, warn};
+use log::trace;
 
-use std::io;
 use std::time::Duration;
+use std::{io, os::fd::BorrowedFd};
 
 pub use dbus;
 mod filters;
@@ -24,7 +24,7 @@ use filters::Filters;
 /// A event source connection to D-Bus, non-async version where callbacks are Send but not Sync.
 pub struct DBusSource<Data: 'static> {
     conn: Connection,
-    pub watch: Generic<i32>,
+    pub watch: Generic<BorrowedFd<'static>>,
     filters: std::cell::RefCell<Filters<FilterCb<Data>>>,
     pub channel: channel::Channel<Message>,
 }
@@ -32,7 +32,7 @@ pub struct DBusSource<Data: 'static> {
 /// A event source conncetion to D-Bus, thread local + non-async version
 pub struct LocalDBusSource<Data: 'static> {
     conn: LocalConnection,
-    pub watch: Generic<i32>,
+    pub watch: Generic<BorrowedFd<'static>>,
     filters: std::cell::RefCell<Filters<LocalFilterCb<Data>>>,
     pub channel: channel::Channel<Message>,
 }
@@ -40,7 +40,7 @@ pub struct LocalDBusSource<Data: 'static> {
 /// A event source connection to D-Bus, Send + Sync + non-async version
 pub struct SyncDBusSource<Data: 'static> {
     conn: SyncConnection,
-    watch: Generic<i32>,
+    watch: Generic<BorrowedFd<'static>>,
     filters: std::sync::Mutex<Filters<SyncFilterCb<Data>>>,
     channel: std::sync::Mutex<channel::Channel<Message>>,
 }
@@ -82,7 +82,7 @@ impl<Data> $source<Data> {
             }
         };
 
-        let watch = Generic::new(watch_fd.fd, interest, Mode::Level);
+        let watch = Generic::new(unsafe { BorrowedFd::borrow_raw(watch_fd.fd) }, interest, Mode::Level);
 
         let conn: $connection = channel.into();
 
@@ -260,6 +260,8 @@ impl<Data> EventSource for &'static mut $source<Data> {
     type Metadata = &'static mut $source<Data>;
     type Ret = Option<Token>;
     type Error = std::io::Error;
+
+    const NEEDS_EXTRA_LIFECYCLE_EVENTS: bool = false;
 
     fn process_events<Callback>(
         &mut self,

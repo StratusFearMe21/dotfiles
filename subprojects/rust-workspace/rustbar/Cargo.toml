@@ -6,24 +6,20 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-smithay-client-toolkit = "0.17.0"
+smithay-client-toolkit = "0.18.0"
 tiny-skia = "0.10"
 calloop-dbus = { path = "../calloop-dbus" }
 dbus = "0.9.7"
 dirs = "5.0.1"
-nix = { version = "0.26.2", default-features = false, features = ["inotify"] }
+nix = { version = "0.27.1", default-features = false, features = ["inotify"] }
 rand = { version = "0.8.5", default-features = false, features = ["std"] }
-# time = { version = "0.3.20", features = ["local-offset", "formatting"] }
-# tz-rs = "0.6.14"
 dconf-sys = { path = "../dconf-sys" }
 glib = "0.18.1"
 memchr = "2.5.0"
-cosmic-text = "0.8.0"
-# iced_tiny_skia = { path = "../iced/tiny_skia" }
-wayland-scanner = "0.30.0"
-wayland-backend = "0.1.2"
+wayland-scanner = "0.31.0"
+wayland-backend = "0.3.2"
 freedesktop-desktop-entry = "0.5.0"
-num_enum = "0.6.1"
+num_enum = "0.7.1"
 keyframe = { version = "1.1.1", default-features = false }
 iced_tiny_skia = "0.1.0"
 yoke = { version = "0.7.3", features = ["derive"] }
@@ -33,3 +29,10 @@ palette = { version = "0.7.3", default-features = false, features = ["std"] }
 cssparser = "0.33.0"
 chrono = { version = "0.4.31", default-features = false, features = ["clock"] }
 rusqlite = "0.30.0"
+tree-sitter-dconfsomebar = { version = "0.0.1", path = "../tree-sitter-dconfsomebar" }
+tree-sitter = "0.20.10"
+
+[build-dependencies]
+tree-sitter-dconfsomebar = { version = "0.0.1", path = "../tree-sitter-dconfsomebar" }
+tree-sitter = "0.20.10"
+case = "1.0.0"

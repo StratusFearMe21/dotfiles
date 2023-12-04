@@ -1,6 +1,6 @@
 pkgname=dotfiles
-pkgver=1.19.1
-pkgrel=28
+pkgver=1.20.0
+pkgrel=8
 pkgdesc='All my dotfiles as one package'
 arch=('any')
 install=dotfiles.install
@@ -68,7 +68,7 @@ depends=(
   exa
   bat
   starship
-  nushell
+  fish
   grim
   opendoas
   gvfs
@@ -95,7 +95,10 @@ depends=(
   materia-gtk-theme
   papirus-icon-theme
   qt5ct
+  xplr
   elogind
+  wtype
+  wl-clipboard
   # profile-sync-daemon
 )
 makedepends=(
@@ -152,8 +155,8 @@ package() {
   install -Dm644 ../doas.conf "$pkgdir/etc/doas.conf"
   install -Dm644 ../foot.ini "$pkgdir/usr/share/dotfiles/foot.ini"
   install -Dm644 ../zathurarc "$pkgdir/etc/zathurarc"
-  install -Dm755 ../env.nu "$pkgdir/usr/share/dotfiles/env.nu"
-  install -Dm755 ../config.nu "$pkgdir/usr/share/dotfiles/config.nu"
+  install -Dm755 ../config.fish "$pkgdir/etc/fish/conf.d/dotfiles.fish"
+  install -Dm755 ../cd.fish "$pkgdir/etc/fish/functions/cd.fish"
   install -dm755 "$pkgdir/usr/share/dotfiles/chrome"
   cp -r ../chrome "$pkgdir/usr/share/dotfiles"
   cp -r ../helix "$pkgdir/usr/share/dotfiles"

@@ -32,10 +32,10 @@ impl<F> Filters<F> {
         self.list.remove(&id)
     }
 
-    pub fn get_matches(
-        &mut self,
-        m: &Message,
-    ) -> Option<(&dbus::channel::Token, &mut (MatchRule<'static>, F))> {
-        self.list.iter_mut().find(|(_, v)| v.0.matches(m))
-    }
+    // pub fn get_matches(
+    //     &mut self,
+    //     m: &Message,
+    // ) -> Option<(&dbus::channel::Token, &mut (MatchRule<'static>, F))> {
+    //     self.list.iter_mut().find(|(_, v)| v.0.matches(m))
+    // }
 }

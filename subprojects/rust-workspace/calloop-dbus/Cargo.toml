@@ -12,6 +12,6 @@ keywords = ["eventloop", "calloop", "dbus"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-calloop = "0.10"
+calloop = "0.12"
 dbus = "0.9"
 log = "0.4"

@@ -5,7 +5,7 @@ module.exports = grammar({
 
   rules: {
     // TODO: add the actual grammar rules
-    source_file: $ => seq(choice(
+    source_file: $ => choice(
       $.accel_profile,
       $.accel_speed,
       $.border_color,
@@ -32,7 +32,7 @@ module.exports = grammar({
       $.tap_to_click,
       $.tap_to_drag,
       $.xkb_options,
-    ), /\s*/),
+    ),
     accel_profile: _ =>    "/dotfiles/dwl/accel-profile",
     accel_speed: _ =>    "/dotfiles/dwl/accel-speed",
     border_color: _ =>    "/dotfiles/dwl/border-color",

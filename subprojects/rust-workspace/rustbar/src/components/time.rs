@@ -82,8 +82,8 @@ pub struct TimeBlock {
     pub now: DateTime<Local>,
     pub time_fmt: String,
     pub date_fmt: String,
-    pub x_at: f32,
-    pub width: f32,
+    pub xs_at: [f32; 2],
+    pub widths: [f32; 2],
     handle: RegistrationToken,
 }
 
@@ -136,8 +136,8 @@ impl TimeBlock {
             date_fmt,
             is_time_updated: false,
             handle,
-            x_at: 0.0,
-            width: 0.0,
+            xs_at: [0.0; 2],
+            widths: [0.0; 2],
         }
     }
 
@@ -145,25 +145,27 @@ impl TimeBlock {
         handle.remove(self.handle);
     }
 
-    pub fn fmt(&self, f: &mut String) {
+    pub fn fmt_time(&self, f: &mut String) {
         f.push_str(match_clock!(self.now.hour()));
         use std::fmt::Write;
-        write!(
-            f,
-            "{}  󰃶 {} ",
-            self.now.format(&self.time_fmt),
-            self.now.format(&self.date_fmt)
-        )
-        .unwrap();
+        write!(f, "{} ", self.now.format(&self.time_fmt),).unwrap();
     }
 
-    pub fn fmt_table(&self, f: &mut BufWriter<UnixStream>) -> std::io::Result<()> {
+    pub fn fmt_date(&self, f: &mut String) {
+        use std::fmt::Write;
+        write!(f, " 󰃶 {} ", self.now.format(&self.date_fmt)).unwrap();
+    }
+
+    pub fn fmt_time_table(&self, f: &mut BufWriter<UnixStream>) -> std::io::Result<()> {
         write!(
             f,
             include_str!("../table.txt"),
             match_clock!(self.now.hour()),
         )?;
-        write!(f, "{}\n", self.now.format(&self.time_fmt),)?;
+        write!(f, "{}\n", self.now.format(&self.time_fmt))
+    }
+
+    pub fn fmt_date_table(&self, f: &mut BufWriter<UnixStream>) -> std::io::Result<()> {
         write!(f, include_str!("../table.txt"), "󰃶 ")?;
         write!(f, "{}\n", self.now.format(&self.date_fmt))
     }

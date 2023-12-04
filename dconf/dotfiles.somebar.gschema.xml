@@ -126,5 +126,13 @@
         <default>"firedragon"</default>
         <summary>The binary name of the browser on the system</summary>
       </key>
+      <key name="divider" type="s">
+        <default>""</default>
+        <summary>The character used to split the blocks in the status bar</summary>
+      </key>
+      <key name="divider-hard" type="s">
+        <default>""</default>
+        <summary>Shoud be a filled version of the `divider` value</summary>
+      </key>
     </schema>
 </schemalist>

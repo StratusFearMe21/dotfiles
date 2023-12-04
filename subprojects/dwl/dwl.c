@@ -340,7 +340,6 @@ static void monocle(Monitor *m);
 static void motionabsolute(struct wl_listener *listener, void *data);
 static void motionnotify(uint32_t time);
 static void motionrelative(struct wl_listener *listener, void *data);
-static void cursor_shape(struct wl_listener *listener, void *data);
 static void moveresize(const Arg *arg);
 static void outputmgrapply(struct wl_listener *listener, void *data);
 static void outputmgrapplyortest(struct wlr_output_configuration_v1 *config, int test);
@@ -431,7 +430,6 @@ static struct wlr_cursor_shape_manager_v1 *cursor_shape_mgr;
 
 static struct wlr_cursor *cursor;
 static struct wlr_xcursor_manager *cursor_mgr;
-static struct wlr_cursor_shape_manager_v1 *cursor_shape_mgr;
 
 static struct wlr_session_lock_manager_v1 *session_lock_mgr;
 static struct wlr_scene_rect *locked_bg;
@@ -1864,13 +1862,6 @@ motionrelative(struct wl_listener *listener, void *data)
 }
 
 void
-cursor_shape(struct wl_listener *listener, void *data)
-{
-	struct wlr_cursor_shape_manager_v1_request_set_shape_event *event = data;
-	wlr_cursor_set_xcursor(cursor, cursor_mgr, wlr_cursor_shape_v1_name(event->shape));
-}
-
-void
 moveresize(const Arg *arg)
 {
 	if (cursor_mode != CurNormal && cursor_mode != CurPressed)
@@ -3295,7 +3286,6 @@ setup(void)
 	 * images are available at all scale factors on the screen (necessary for
 	 * HiDPI support). Scaled cursors will be loaded with each output. */
 	cursor_mgr = wlr_xcursor_manager_create(getenv("XCURSOR_THEME"), 24);
-	cursor_shape_mgr = wlr_cursor_shape_manager_v1_create(dpy, 1);
 	setenv("XCURSOR_SIZE", "24", 1);
 
 	/*
@@ -3308,7 +3298,6 @@ setup(void)
 	 *
 	 * And more comments are sprinkled throughout the notify functions above.
 	 */
-	LISTEN_STATIC(&cursor_shape_mgr->events.request_set_shape, cursor_shape);
 	LISTEN_STATIC(&cursor->events.motion, motionrelative);
 	LISTEN_STATIC(&cursor->events.motion_absolute, motionabsolute);
 	LISTEN_STATIC(&cursor->events.button, buttonpress);

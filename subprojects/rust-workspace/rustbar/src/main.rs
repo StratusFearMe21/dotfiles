@@ -5,6 +5,7 @@ use std::io::Write;
 use std::ops::AddAssign;
 use std::ops::SubAssign;
 use std::os::fd::AsRawFd;
+use std::os::fd::BorrowedFd;
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
 use std::ptr::NonNull;
@@ -22,7 +23,6 @@ use components::{
 };
 
 use calloop::generic::Generic;
-use calloop::signals::{Signal, Signals};
 use calloop::EventLoop;
 use calloop::Interest;
 use calloop::LoopHandle;
@@ -34,7 +34,6 @@ use client::{
     Connection, Proxy, QueueHandle,
 };
 use cssparser::{Parser, ParserInput};
-use cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1;
 use dbus::message::MatchRule;
 use dconf_sys::dconf_client_new;
 use dconf_sys::dconf_client_read;
@@ -65,10 +64,17 @@ use smithay_client_toolkit::reexports::calloop::Mode;
 use smithay_client_toolkit::reexports::calloop::RegistrationToken;
 use smithay_client_toolkit::reexports::client::backend::ObjectId;
 use smithay_client_toolkit::reexports::client::protocol::wl_keyboard;
-use smithay_client_toolkit::seat::keyboard::keysyms;
+use smithay_client_toolkit::reexports::protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1;
+use smithay_client_toolkit::reexports::protocols::wp::fractional_scale::v1::client::wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1;
+use smithay_client_toolkit::reexports::protocols::wp::fractional_scale::v1::client::wp_fractional_scale_v1;
+use smithay_client_toolkit::reexports::protocols::wp::fractional_scale::v1::client::wp_fractional_scale_v1::WpFractionalScaleV1;
+use smithay_client_toolkit::reexports::protocols::wp::viewporter::client::wp_viewport::WpViewport;
+use smithay_client_toolkit::reexports::protocols::wp::viewporter::client::wp_viewporter::WpViewporter;
 use smithay_client_toolkit::seat::keyboard::KeyEvent;
 use smithay_client_toolkit::seat::keyboard::KeyboardHandler;
+use smithay_client_toolkit::seat::keyboard::Keysym;
 use smithay_client_toolkit::seat::keyboard::Modifiers;
+use smithay_client_toolkit::seat::pointer::cursor_shape::CursorShapeManager;
 use smithay_client_toolkit::seat::pointer::BTN_LEFT;
 use smithay_client_toolkit::shell::wlr_layer::KeyboardInteractivity;
 use smithay_client_toolkit::{
@@ -110,6 +116,9 @@ mod upower;
 mod components;
 mod tags;
 
+include!(concat!(env!("OUT_DIR"), "/kinds.rs"));
+
+#[allow(non_camel_case_types)]
 pub mod znet_dwl {
     use smithay_client_toolkit::reexports::client as wayland_client;
     use wayland_client::protocol::*;
@@ -128,44 +137,6 @@ pub mod znet_dwl {
     wayland_scanner::generate_client_code!(
         "../../dwl/protocols/net-tapesoftware-dwl-wm-unstable-v1.xml"
     );
-}
-
-pub mod zwp_tablet_tool {
-    use smithay_client_toolkit::reexports::client as wayland_client;
-    use wayland_client::protocol::*;
-
-    #[allow(non_upper_case_globals)]
-    pub mod __interfaces {
-        use smithay_client_toolkit::reexports::client as wayland_client;
-        use wayland_client::protocol::__interfaces::*;
-        wayland_scanner::generate_interfaces!(
-            "/usr/share/wayland-protocols/unstable/tablet/tablet-unstable-v2.xml"
-        );
-    }
-
-    use self::__interfaces::*;
-
-    wayland_scanner::generate_client_code!(
-        "/usr/share/wayland-protocols/unstable/tablet/tablet-unstable-v2.xml"
-    );
-}
-
-pub mod cursor_shape {
-    use smithay_client_toolkit::reexports::client as wayland_client;
-    use wayland_client::protocol::*;
-
-    #[allow(non_upper_case_globals)]
-    pub mod __interfaces {
-        use super::super::zwp_tablet_tool::__interfaces::*;
-        use smithay_client_toolkit::reexports::client as wayland_client;
-        use wayland_client::protocol::__interfaces::*;
-        wayland_scanner::generate_interfaces!("src/cursor-shape-v1.xml");
-    }
-
-    use self::__interfaces::*;
-    use super::zwp_tablet_tool::zwp_tablet_tool_v2;
-
-    wayland_scanner::generate_client_code!("src/cursor-shape-v1.xml");
 }
 
 #[macro_export]
@@ -196,9 +167,6 @@ macro_rules! add_match {
         .unwrap()
     };
 }
-
-const DIVIDER: &str = "";
-const DIVIDER_HARD: &str = "";
 
 struct DesktopCommand {
     name: String,
@@ -341,8 +309,14 @@ impl SharedData {
                         for p in property.changes {
                             let mut new_prop = property.prefix.clone();
                             new_prop.push_str(&p);
-                            match new_prop.as_str() {
-                                "/dotfiles/somebar/font" => {
+                            match shared_data
+                                .settings_parser
+                                .parse(new_prop, None)
+                                .as_ref()
+                                .and_then(|t| t.root_node().child(0))
+                                .map(|n| NodeKind::from(n.kind_id()))
+                            {
+                                Some(NodeKind::Font) => {
                                     let new_font: String = dconf_read_variant(
                                         shared_data.dconf,
                                         "/dotfiles/somebar/font",
@@ -367,7 +341,7 @@ impl SharedData {
                                     shared_data.ascii_font_width = shared_data
                                         .iced
                                         .measure(
-                                            DIVIDER,
+                                            &shared_data.bar_settings.divider,
                                             shared_data.iced.default_size(),
                                             LineHeight::Relative(1.0),
                                             shared_data.iced.default_font(),
@@ -381,7 +355,7 @@ impl SharedData {
 
                                     shared_data.relayout(Rc::clone(&qh));
                                 }
-                                "/dotfiles/somebar/time-block" => {
+                                Some(NodeKind::TimeBlock) => {
                                     if dconf_read_variant(
                                         shared_data.dconf,
                                         "/dotfiles/somebar/time-block",
@@ -418,7 +392,23 @@ impl SharedData {
                                     }
                                     shared_data.write_bar(&qh);
                                 }
-                                "/dotfiles/somebar/date-fmt" => {
+                                Some(NodeKind::Divider) => {
+                                    shared_data.bar_settings.divider = dconf_read_variant(
+                                        shared_data.dconf,
+                                        "/dotfiles/somebar/divider",
+                                    )
+                                    .unwrap_or_else(|| "".to_owned());
+                                    shared_data.write_bar(&qh);
+                                }
+                                Some(NodeKind::DividerHard) => {
+                                    shared_data.bar_settings.divider_hard = dconf_read_variant(
+                                        shared_data.dconf,
+                                        "/dotfiles/somebar/divider-hard",
+                                    )
+                                    .unwrap_or_else(|| "".to_owned());
+                                    shared_data.write_bar(&qh);
+                                }
+                                Some(NodeKind::DateFmt) => {
                                     if let Some(ref mut time) = shared_data.shared_data.time {
                                         time.date_fmt = dconf_read_variant(
                                             shared_data.dconf,
@@ -428,14 +418,14 @@ impl SharedData {
                                         shared_data.write_bar(&qh);
                                     }
                                 }
-                                "/dotfiles/somebar/browser-path" => {
+                                Some(NodeKind::BrowserPath) => {
                                     shared_data.bar_settings.browser_path = dconf_read_variant(
                                         shared_data.dconf,
                                         "/dotfiles/somebar/browser-path",
                                     )
                                     .unwrap_or_else(|| ".firedragon".to_owned());
                                 }
-                                "/dotfiles/somebar/browser" => {
+                                Some(NodeKind::Browser) => {
                                     shared_data.bar_settings.browser = format!(
                                         "{} ",
                                         dconf_read_variant(
@@ -445,7 +435,7 @@ impl SharedData {
                                         .unwrap_or_else(|| "firedragon".to_owned())
                                     );
                                 }
-                                "/dotfiles/somebar/time-fmt" => {
+                                Some(NodeKind::TimeFmt) => {
                                     if let Some(ref mut time) = shared_data.shared_data.time {
                                         time.time_fmt = dconf_read_variant(
                                             shared_data.dconf,
@@ -455,7 +445,7 @@ impl SharedData {
                                         shared_data.write_bar(&qh);
                                     }
                                 }
-                                "/dotfiles/somebar/update-time-ntp" => {
+                                Some(NodeKind::UpdateTimeNtp) => {
                                     if let Some(ref mut time) = shared_data.shared_data.time {
                                         time.update_time_ntp = dconf_read_variant(
                                             shared_data.dconf,
@@ -465,7 +455,7 @@ impl SharedData {
                                         shared_data.write_bar(&qh);
                                     }
                                 }
-                                "/dotfiles/somebar/brightness-block" => {
+                                Some(NodeKind::BrightnessBlock) => {
                                     if dconf_read_variant(
                                         shared_data.dconf,
                                         "/dotfiles/somebar/brightness-block",
@@ -484,7 +474,7 @@ impl SharedData {
                                     }
                                     shared_data.write_bar(&qh);
                                 }
-                                "/dotfiles/somebar/battery-block" => {
+                                Some(NodeKind::BatteryBlock) => {
                                     if dconf_read_variant(
                                         shared_data.dconf,
                                         "/dotfiles/somebar/battery-block",
@@ -502,7 +492,7 @@ impl SharedData {
                                     }
                                     shared_data.write_bar(&qh);
                                 }
-                                "/dotfiles/somebar/connman-block" => {
+                                Some(NodeKind::ConnmanBlock) => {
                                     if dconf_read_variant(
                                         shared_data.dconf,
                                         "/dotfiles/somebar/connman-block",
@@ -522,7 +512,7 @@ impl SharedData {
                                     }
                                     shared_data.write_bar(&qh);
                                 }
-                                "/dotfiles/somebar/media-block" => {
+                                Some(NodeKind::MediaBlock) => {
                                     if dconf_read_variant(
                                         shared_data.dconf,
                                         "/dotfiles/somebar/media-block",
@@ -539,19 +529,19 @@ impl SharedData {
                                     }
                                     shared_data.write_bar(&qh);
                                 }
-                                "/dotfiles/somebar/color-active" => {
+                                Some(NodeKind::ColorActive) => {
                                     shared_data
                                         .bar_settings
                                         .update_color_active(shared_data.dconf);
                                     shared_data.relayout(Rc::clone(&qh));
                                 }
-                                "/dotfiles/somebar/color-inactive" => {
+                                Some(NodeKind::ColorInactive) => {
                                     shared_data
                                         .bar_settings
                                         .update_color_inactive(shared_data.dconf);
                                     shared_data.relayout(Rc::clone(&qh));
                                 }
-                                "/dotfiles/somebar/padding-x" => {
+                                Some(NodeKind::PaddingX) => {
                                     shared_data.bar_settings.padding_x = dconf_read_variant::<f64>(
                                         shared_data.dconf,
                                         "/dotfiles/somebar/padding-x",
@@ -561,7 +551,7 @@ impl SharedData {
 
                                     shared_data.relayout(Rc::clone(&qh));
                                 }
-                                "/dotfiles/somebar/padding-y" => {
+                                Some(NodeKind::PaddingY) => {
                                     shared_data.bar_settings.padding_y = dconf_read_variant::<f64>(
                                         shared_data.dconf,
                                         "/dotfiles/somebar/padding-y",
@@ -571,7 +561,7 @@ impl SharedData {
 
                                     shared_data.relayout(Rc::clone(&qh));
                                 }
-                                "/dotfiles/somebar/top-bar" => {
+                                Some(NodeKind::TopBar) => {
                                     shared_data.bar_settings.top_bar = dconf_read_variant(
                                         shared_data.dconf,
                                         "/dotfiles/somebar/top-bar",
@@ -589,7 +579,7 @@ impl SharedData {
                                         monitor.output.layer_surface.commit();
                                     }
                                 }
-                                "/dotfiles/somebar/time-servers" => {
+                                Some(NodeKind::TimeServers) => {
                                     if let Some(ref mut time) = shared_data.shared_data.time {
                                         time.time_servers = dconf_read_variant(
                                             dconf,
@@ -605,7 +595,7 @@ impl SharedData {
                                         shared_data.write_bar(&qh);
                                     }
                                 }
-                                "/dotfiles/somebar/bar-show-time" => {
+                                Some(NodeKind::BarShowTime) => {
                                     shared_data.bar_settings.bar_show_time = dconf_read_variant(
                                         shared_data.dconf,
                                         "/dotfiles/somebar/bar-show-time",
@@ -704,18 +694,18 @@ impl SharedData {
                 )
                 .unwrap();
 
-            handle
-                .insert_source(
-                    Signals::new(&[Signal::SIGINT, Signal::SIGTERM]).unwrap(),
-                    move |signal, _, data| match signal.signal() {
-                        Signal::SIGINT | Signal::SIGTERM => {
-                            std::fs::remove_file(&socket_file).unwrap();
-                            data.exit.stop();
-                        }
-                        _ => unreachable!(),
-                    },
-                )
-                .unwrap();
+            // handle
+            //     .insert_source(
+            //         Signals::new(&[Signal::SIGINT, Signal::SIGTERM]).unwrap(),
+            //         move |signal, _, data| match signal.signal() {
+            //             Signal::SIGINT | Signal::SIGTERM => {
+            //                 std::fs::remove_file(&socket_file).unwrap();
+            //                 data.exit.stop();
+            //             }
+            //             _ => unreachable!(),
+            //         },
+            //     )
+            //     .unwrap();
 
             let time_handle = handle
                 .insert_source(
@@ -748,9 +738,10 @@ impl SharedData {
         output: &Monitor,
         padding_x: f32,
         padding_y: f32,
+        divider: &str,
     ) -> (Primitive, Size<f32>) {
         let divider_measurement = backend.measure(
-            DIVIDER,
+            divider,
             backend.default_size() + padding_y,
             LineHeight::Relative(1.0),
             backend.default_font(),
@@ -793,7 +784,7 @@ impl SharedData {
             });
             x -= divider_measurement.width;
             primitives.push(Primitive::Text {
-                content: DIVIDER.to_owned(),
+                content: divider.to_owned(),
                 bounds: Rectangle {
                     x,
                     y: logical_size.height / 2.0,
@@ -844,7 +835,7 @@ impl SharedData {
             });
             x -= divider_measurement.width;
             primitives.push(Primitive::Text {
-                content: DIVIDER.to_owned(),
+                content: divider.to_owned(),
                 bounds: Rectangle {
                     x,
                     y: logical_size.height / 2.0,
@@ -865,7 +856,8 @@ impl SharedData {
         }
 
         if let Some(ref mut bat_block) = self.bat_block {
-            let mut measurement = 0.0;
+            bat_block.xs_at.clear();
+            bat_block.widths.clear();
             for content in
                 unsafe { std::mem::transmute::<&BatteryBlock, &'static BatteryBlock>(&bat_block) }
                     .fmt()
@@ -900,7 +892,7 @@ impl SharedData {
                 });
                 x -= divider_measurement.width;
                 primitives.push(Primitive::Text {
-                    content: DIVIDER.to_owned(),
+                    content: divider.to_owned(),
                     bounds: Rectangle {
                         x,
                         y: logical_size.height / 2.0,
@@ -916,11 +908,11 @@ impl SharedData {
                     shaping: Shaping::Basic,
                 });
 
-                measurement += current_measurement + divider_measurement.width;
+                bat_block.xs_at.push(x);
+                bat_block
+                    .widths
+                    .push(current_measurement + divider_measurement.width);
             }
-
-            bat_block.x_at = x;
-            bat_block.width = measurement;
         }
 
         if let Some(ref mut brightness) = self.brightness {
@@ -955,7 +947,7 @@ impl SharedData {
             });
             x -= divider_measurement.width;
             primitives.push(Primitive::Text {
-                content: DIVIDER.to_owned(),
+                content: divider.to_owned(),
                 bounds: Rectangle {
                     x,
                     y: logical_size.height / 2.0,
@@ -978,39 +970,92 @@ impl SharedData {
         let mut height = 0.0;
 
         if let Some(ref mut time) = self.time {
-            let mut content = String::new();
-            time.fmt(&mut content);
-            let measurement = backend.measure(
-                &content,
-                backend.default_size(),
-                LineHeight::Relative(1.0),
-                backend.default_font(),
-                Size::INFINITY,
-                Shaping::Basic,
-            );
-            height = measurement.height;
-            let measurement = measurement.width;
-            x -= measurement;
-            primitives.push(Primitive::Text {
-                content,
-                bounds: Rectangle {
-                    x,
-                    y: logical_size.height / 2.0,
-                    width: logical_size.width,
-                    height: logical_size.height / 2.0,
-                },
-                color,
-                size: backend.default_size(),
-                line_height: LineHeight::Relative(1.0),
-                font: backend.default_font(),
-                horizontal_alignment: Horizontal::Left,
-                vertical_alignment: Vertical::Center,
-                shaping: Shaping::Basic,
-            });
-            x -= padding_x;
+            {
+                let mut content = String::new();
+                time.fmt_date(&mut content);
+                let measurement = backend.measure(
+                    &content,
+                    backend.default_size(),
+                    LineHeight::Relative(1.0),
+                    backend.default_font(),
+                    Size::INFINITY,
+                    Shaping::Basic,
+                );
+                height = measurement.height;
+                let measurement = measurement.width;
+                x -= measurement;
+                primitives.push(Primitive::Text {
+                    content,
+                    bounds: Rectangle {
+                        x,
+                        y: logical_size.height / 2.0,
+                        width: logical_size.width,
+                        height: logical_size.height / 2.0,
+                    },
+                    color,
+                    size: backend.default_size(),
+                    line_height: LineHeight::Relative(1.0),
+                    font: backend.default_font(),
+                    horizontal_alignment: Horizontal::Left,
+                    vertical_alignment: Vertical::Center,
+                    shaping: Shaping::Basic,
+                });
+                x -= divider_measurement.width;
+                primitives.push(Primitive::Text {
+                    content: divider.to_owned(),
+                    bounds: Rectangle {
+                        x,
+                        y: logical_size.height / 2.0,
+                        width: logical_size.width,
+                        height: logical_size.height,
+                    },
+                    color,
+                    size: backend.default_size() + padding_y * 2.0,
+                    line_height: LineHeight::Relative(1.0),
+                    font: backend.default_font(),
+                    horizontal_alignment: Horizontal::Left,
+                    vertical_alignment: Vertical::Center,
+                    shaping: Shaping::Basic,
+                });
 
-            time.x_at = x;
-            time.width = measurement + padding_x;
+                time.xs_at[0] = x;
+                time.widths[0] = measurement + padding_x;
+            }
+
+            {
+                let mut content = String::new();
+                time.fmt_time(&mut content);
+                let measurement = backend.measure(
+                    &content,
+                    backend.default_size(),
+                    LineHeight::Relative(1.0),
+                    backend.default_font(),
+                    Size::INFINITY,
+                    Shaping::Basic,
+                );
+                let measurement = measurement.width;
+                x -= measurement;
+                primitives.push(Primitive::Text {
+                    content,
+                    bounds: Rectangle {
+                        x,
+                        y: logical_size.height / 2.0,
+                        width: logical_size.width,
+                        height: logical_size.height / 2.0,
+                    },
+                    color,
+                    size: backend.default_size(),
+                    line_height: LineHeight::Relative(1.0),
+                    font: backend.default_font(),
+                    horizontal_alignment: Horizontal::Left,
+                    vertical_alignment: Vertical::Center,
+                    shaping: Shaping::Basic,
+                });
+                x -= padding_x;
+
+                time.xs_at[1] = x;
+                time.widths[1] = measurement + padding_x;
+            }
         }
 
         (
@@ -1027,7 +1072,8 @@ impl SharedData {
     fn fmt_table(&self, f: &mut BufWriter<UnixStream>) -> std::io::Result<()> {
         f.write_all(b"\n")?;
         if let Some(ref time) = self.time {
-            time.fmt_table(f)?;
+            time.fmt_time_table(f)?;
+            time.fmt_date_table(f)?;
         }
 
         if let Some(ref brightness) = self.brightness {
@@ -1102,19 +1148,23 @@ fn main() {
     let layer_shell = LayerShell::bind(&globals, &qh).unwrap();
 
     let dwl: ZnetTapesoftwareDwlWmV1 = globals.bind(&qh, 1..=1, GlobalData).unwrap();
-    let cursor_shape_manager: WpCursorShapeManagerV1 =
+    let cursor_shape_manager: CursorShapeManager = CursorShapeManager::bind(&globals, &qh).unwrap();
+
+    let fractional_scale: WpFractionalScaleManagerV1 =
         globals.bind(&qh, 1..=1, GlobalData).unwrap();
+
+    let viewporter: WpViewporter = globals.bind(&qh, 1..=1, GlobalData).unwrap();
 
     let shm = Shm::bind(&globals, &qh).unwrap();
 
-    let mut event_loop = EventLoop::try_new().unwrap();
-    let handle = event_loop.handle();
-
     let dconf = unsafe { dconf_client_new() };
-    let shared_data = SharedData::new(&handle, Rc::clone(&qh), dconf);
 
     let new_font: String = dconf_read_variant(dconf, "/dotfiles/somebar/font")
         .unwrap_or(String::from("FiraCode Nerd Font 14"));
+    let divider: String =
+        dconf_read_variant(dconf, "/dotfiles/somebar/divider").unwrap_or(String::from(""));
+    let divider_hard: String =
+        dconf_read_variant(dconf, "/dotfiles/somebar/divider-hard").unwrap_or(String::from(""));
 
     let split = new_font.rsplit_once(' ').unwrap();
 
@@ -1131,7 +1181,7 @@ fn main() {
     });
 
     let measured_text = backend.measure(
-        DIVIDER,
+        &divider,
         backend.default_size(),
         LineHeight::Relative(1.0),
         backend.default_font(),
@@ -1142,7 +1192,7 @@ fn main() {
         Shaping::Basic,
     );
 
-    let bar_settings = BarSettings::new(new_font, dconf);
+    let bar_settings = BarSettings::new(new_font, dconf, divider, divider_hard);
 
     let bar_size = Size {
         width: 0.0,
@@ -1150,6 +1200,19 @@ fn main() {
     };
 
     let pool = SlotPool::new(1920 * bar_size.height as usize * 4, &shm).unwrap();
+
+    let guard = event_queue.prepare_read().unwrap();
+    let fd = Generic::new(
+        unsafe { BorrowedFd::borrow_raw(guard.connection_fd().as_raw_fd()) },
+        Interest::READ,
+        Mode::Level,
+    );
+    drop(guard);
+
+    let mut event_loop = EventLoop::try_new().unwrap();
+    let handle = event_loop.handle();
+
+    let shared_data = SharedData::new(&handle, Rc::clone(&qh), dconf);
 
     let mut simple_layer = SimpleLayer::new(
         RegistryState::new(&globals),
@@ -1168,15 +1231,9 @@ fn main() {
         compositor,
         bar_settings,
         unsafe { std::mem::transmute(event_loop.handle()) },
+        fractional_scale,
+        viewporter,
     );
-
-    let guard = event_queue.prepare_read().unwrap();
-    let fd = Generic::new(
-        guard.connection_fd().as_raw_fd(),
-        Interest::READ,
-        Mode::Level,
-    );
-    drop(guard);
 
     let event_queue = Rc::new(RefCell::new(event_queue));
     let event_queue_loop = Rc::clone(&event_queue);
@@ -1213,6 +1270,7 @@ fn main() {
 pub struct Output {
     layer_surface: LayerSurface,
     viewport: Viewport,
+    viewporter_vp: WpViewport,
     mask: Mask,
     frame_req: bool,
     first_configure: bool,
@@ -1255,6 +1313,8 @@ pub struct BarSettings {
     bar_show_time: u64,
     browser_path: String,
     browser: String,
+    divider: String,
+    divider_hard: String,
     top_bar: bool,
 }
 
@@ -1266,7 +1326,7 @@ fn parse_color(
     if let Some((color_one, color_two)) =
         dconf_read_variant::<(String, String)>(dconf_client, dconf_path)
     {
-        if let Ok((_, color)) = color::parse_color_with::<color::Color>(
+        if let Ok((_, color)) = color::parse_color_with(
             &mut DefaultColorParser::new(Some(&mut color::Color::LinSrgb(
                 color_input[0].into_linear(),
             ))),
@@ -1276,7 +1336,7 @@ fn parse_color(
             color_input[0] = palette::Srgba::from_linear(color);
         }
 
-        if let Ok((_, color)) = color::parse_color_with::<color::Color>(
+        if let Ok((_, color)) = color::parse_color_with(
             &mut DefaultColorParser::new(Some(&mut color::Color::LinSrgb(
                 color_input[1].into_linear(),
             ))),
@@ -1289,7 +1349,12 @@ fn parse_color(
 }
 
 impl BarSettings {
-    fn new(default_font: String, dconf: *mut DConfClient) -> BarSettings {
+    fn new(
+        default_font: String,
+        dconf: *mut DConfClient,
+        divider: String,
+        divider_hard: String,
+    ) -> BarSettings {
         let mut color_active: [palette::Srgba; 2] = [
             palette::Srgba::from_components((1.0, 0.56, 0.25, 1.0)),
             palette::Srgba::from_components((0.2, 0.227, 0.25, 1.0)),
@@ -1352,6 +1417,8 @@ impl BarSettings {
                 dconf_read_variant(dconf, "/dotfiles/somebar/browser")
                     .unwrap_or_else(|| "firedragon".to_owned())
             ),
+            divider,
+            divider_hard,
         }
     }
 
@@ -1425,10 +1492,13 @@ pub struct SimpleLayer {
     bar_size: Size<f32>,
     layer_shell: LayerShell,
     dwl: ZnetTapesoftwareDwlWmV1,
-    cursor_shape_manager: WpCursorShapeManagerV1,
+    fractional_scaling: WpFractionalScaleManagerV1,
+    viewporter: WpViewporter,
+    cursor_shape_manager: CursorShapeManager,
     monitors: HashMap<ObjectId, Monitor>,
     output_map: HashMap<ObjectId, ObjectId>,
     znet_map: HashMap<ObjectId, ObjectId>,
+    fractional_map: HashMap<ObjectId, ObjectId>,
     output_type_map: HashMap<ObjectId, OutputType>,
     tag_count: usize,
     ascii_font_width: f32,
@@ -1440,6 +1510,7 @@ pub struct SimpleLayer {
     shared_data: SharedData,
     bar_settings: BarSettings,
     matcher: nucleo_matcher::Matcher,
+    settings_parser: tree_sitter::Parser,
 }
 
 impl SimpleLayer {
@@ -1454,12 +1525,14 @@ impl SimpleLayer {
         iced: iced_tiny_skia::Backend,
         shared_data: SharedData,
         dwl: ZnetTapesoftwareDwlWmV1,
-        cursor_shape_manager: WpCursorShapeManagerV1,
+        cursor_shape_manager: CursorShapeManager,
         dconf: *mut DConfClient,
         layer_shell: LayerShell,
         compositor_state: CompositorState,
         bar_settings: BarSettings,
         loop_handle: LoopHandle<'static, SimpleLayer>,
+        fractional_scaling: WpFractionalScaleManagerV1,
+        viewporter: WpViewporter,
     ) -> SimpleLayer {
         Self {
             registry_state,
@@ -1478,7 +1551,7 @@ impl SimpleLayer {
             loop_handle,
             ascii_font_width: iced
                 .measure(
-                    DIVIDER,
+                    &bar_settings.divider,
                     iced.default_size(),
                     LineHeight::Relative(1.0),
                     iced.default_font(),
@@ -1498,12 +1571,23 @@ impl SimpleLayer {
             monitors: HashMap::new(),
             output_map: HashMap::new(),
             znet_map: HashMap::new(),
+            fractional_map: HashMap::new(),
             output_type_map: HashMap::new(),
             matcher: nucleo_matcher::Matcher::new({
                 let mut config = nucleo_matcher::Config::DEFAULT;
                 config.prefer_prefix = true;
                 config
             }),
+            settings_parser: {
+                let mut parser = tree_sitter::Parser::new();
+                parser
+                    .set_language(tree_sitter_dconfsomebar::language())
+                    .unwrap();
+                parser.set_timeout_micros(500_000);
+                parser
+            },
+            fractional_scaling,
+            viewporter,
         }
     }
 
@@ -1519,6 +1603,7 @@ impl SimpleLayer {
                 monitor,
                 self.bar_settings.padding_x,
                 self.bar_settings.padding_y,
+                &self.bar_settings.divider,
             );
 
             monitor.status_bar_primitives = Arc::new(status_bar_primitives);
@@ -1672,59 +1757,22 @@ impl SimpleLayer {
 }
 
 impl CompositorHandler for SimpleLayer {
+    fn transform_changed(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_surface::WlSurface,
+        _: wl_output::Transform,
+    ) {
+    }
+
     fn scale_factor_changed(
         &mut self,
         _conn: &Connection,
-        qh: &QueueHandle<Self>,
-        surface: &wl_surface::WlSurface,
-        new_factor: i32,
+        _: &QueueHandle<Self>,
+        _: &wl_surface::WlSurface,
+        _: i32,
     ) {
-        let output = match self.output_type_map.get(&surface.id()) {
-            Some(OutputType::Bar) => {
-                if let Some(monitor) = self.monitors.get_mut(&surface.id()) {
-                    &mut monitor.output
-                } else {
-                    return;
-                }
-            }
-            Some(OutputType::Info(id)) => {
-                if let Some(monitor) = self.monitors.get_mut(id) {
-                    if let Some(ref mut output) = monitor.info_output {
-                        output
-                    } else {
-                        return;
-                    }
-                } else {
-                    return;
-                }
-            }
-            None => return,
-        };
-
-        output.viewport = Viewport::with_physical_size(
-            Size {
-                width: (output.viewport.logical_size().width * new_factor as f32) as u32,
-                height: (output.viewport.logical_size().height * new_factor as f32) as u32,
-            },
-            new_factor as f64,
-        );
-        // Initializes our double buffer one we've configured the layer shell
-        output.buffers = Some(Buffers::new(
-            &mut self.pool,
-            output.viewport.physical_width(),
-            output.viewport.physical_height(),
-            wl_shm::Format::Argb8888,
-        ));
-        output.mask = Mask::new(
-            output.viewport.physical_width(),
-            output.viewport.physical_height(),
-        )
-        .unwrap();
-        output
-            .layer_surface
-            .set_buffer_scale(new_factor as u32)
-            .unwrap();
-        output.frame(qh);
     }
 
     fn frame(
@@ -1754,6 +1802,9 @@ impl OutputHandler for SimpleLayer {
         output: wl_output::WlOutput,
     ) {
         let surface = self.compositor_state.create_surface(&qh);
+        let fractional_scaler = self
+            .fractional_scaling
+            .get_fractional_scale(&surface, qh, GlobalData);
         let layer = self.layer_shell.create_layer_surface(
             &qh,
             surface,
@@ -1779,12 +1830,17 @@ impl OutputHandler for SimpleLayer {
         let layer_id = layer.wl_surface().id();
 
         self.output_map.insert(output.id(), layer_id.clone());
+        self.fractional_map
+            .insert(fractional_scaler.id(), layer_id.clone());
 
         let monitor = self.dwl.get_monitor(&output, &qh, GlobalData);
 
         self.znet_map.insert(monitor.id(), layer_id.clone());
         let mut new_output = Monitor {
             output: Output {
+                viewporter_vp: self
+                    .viewporter
+                    .get_viewport(layer.wl_surface(), qh, GlobalData),
                 layer_surface: layer,
                 viewport: Viewport::with_physical_size(
                     Size {
@@ -1797,6 +1853,7 @@ impl OutputHandler for SimpleLayer {
                 mask: Mask::new(1, self.bar_size.height as u32).unwrap(),
                 first_configure: true,
                 buffers: None,
+                // fractional_scaler,
             },
             wl_output: output,
             info_output: None,
@@ -1827,6 +1884,7 @@ impl OutputHandler for SimpleLayer {
             &new_output,
             self.bar_settings.padding_x,
             self.bar_settings.padding_y,
+            &self.bar_settings.divider,
         );
         new_output.status_bar_primitives = Arc::new(primitives);
         self.output_type_map
@@ -1906,8 +1964,8 @@ impl LayerShellHandler for SimpleLayer {
         } else {
             output.viewport = Viewport::with_physical_size(
                 Size {
-                    width: configure.new_size.0 * output.viewport.scale_factor() as u32,
-                    height: configure.new_size.1 * output.viewport.scale_factor() as u32,
+                    width: (configure.new_size.0 as f64 * output.viewport.scale_factor()) as u32,
+                    height: (configure.new_size.1 as f64 * output.viewport.scale_factor()) as u32,
                 },
                 output.viewport.scale_factor(),
             );
@@ -1916,6 +1974,10 @@ impl LayerShellHandler for SimpleLayer {
                 output.viewport.physical_height(),
             )
             .unwrap();
+            output.viewporter_vp.set_destination(
+                output.viewport.logical_size().width as _,
+                output.viewport.logical_size().height as _,
+            );
         }
 
         // Initializes our double buffer one we've configured the layer shell
@@ -2000,7 +2062,7 @@ impl KeyboardHandler for SimpleLayer {
         _: &wl_surface::WlSurface,
         _: u32,
         _: &[u32],
-        _: &[u32],
+        _: &[Keysym],
     ) {
     }
 
@@ -2024,7 +2086,7 @@ impl KeyboardHandler for SimpleLayer {
     ) {
         let monitor = self.monitors.values_mut().find(|o| o.selected).unwrap();
         match event.keysym {
-            keysyms::XKB_KEY_Escape => {
+            Keysym::Escape => {
                 monitor.bar_state = BarState::Normal;
                 monitor
                     .output
@@ -2044,7 +2106,7 @@ impl KeyboardHandler for SimpleLayer {
                 }
                 monitor.output.layer_surface.commit();
             }
-            keysyms::XKB_KEY_BackSpace => match &mut monitor.bar_state {
+            Keysym::BackSpace => match &mut monitor.bar_state {
                 BarState::AppLauncher { current_input, .. } => {
                     current_input.pop();
                     monitor.output.frame(qh);
@@ -2052,7 +2114,7 @@ impl KeyboardHandler for SimpleLayer {
                 }
                 _ => {}
             },
-            keysyms::XKB_KEY_Down | keysyms::XKB_KEY_Right => match &mut monitor.bar_state {
+            Keysym::Down | Keysym::Right => match &mut monitor.bar_state {
                 BarState::AppLauncher { selected, .. } => {
                     selected.add_assign(1);
                     monitor.output.frame(qh);
@@ -2060,7 +2122,7 @@ impl KeyboardHandler for SimpleLayer {
                 }
                 _ => {}
             },
-            keysyms::XKB_KEY_Up | keysyms::XKB_KEY_Left => match &mut monitor.bar_state {
+            Keysym::Up | Keysym::Left => match &mut monitor.bar_state {
                 BarState::AppLauncher { selected, .. } => {
                     selected.sub_assign(1);
                     monitor.output.frame(qh);
@@ -2068,7 +2130,7 @@ impl KeyboardHandler for SimpleLayer {
                 }
                 _ => {}
             },
-            keysyms::XKB_KEY_Return => match &mut monitor.bar_state {
+            Keysym::Return => match &mut monitor.bar_state {
                 BarState::AppLauncher {
                     apps,
                     selected,
@@ -2155,27 +2217,16 @@ impl PointerHandler for SimpleLayer {
             if let Some(monitor) = self.monitors.get_mut(&event.surface.id()) {
                 match event.kind {
                     Enter { serial } => {
-                        let cursor_device = self
-                            .cursor_shape_manager
-                            .get_pointer(pointer, qh, GlobalData);
+                        let cursor_device = self.cursor_shape_manager.get_shape_device(pointer, qh);
 
-                        cursor_device.set_shape(
-                            serial,
-                            cursor_shape::wp_cursor_shape_device_v1::Shape::Default,
-                        );
+                        cursor_device.set_shape(serial, wp_cursor_shape_device_v1::Shape::Default);
                     }
                     Leave { .. } => {
                         monitor.status_bar_bg = Arc::new(Primitive::Group {
                             primitives: Vec::new(),
                         });
                         monitor.output.frame(qh);
-                        if let Some(mut info) = monitor.info_output.take() {
-                            // println!("info output destroy");
-                            // let buffers = info.buffers.take().unwrap();
-                            // buffers.buffers[0].wl_buffer().destroy();
-                            // buffers.buffers[1].wl_buffer().destroy();
-                            // info.layer_surface.wl_surface().destroy();
-                        }
+                        monitor.info_output.take();
                         self.select_block(None, event.surface.id());
                     }
                     Motion { .. } => {
@@ -2197,9 +2248,10 @@ impl PointerHandler for SimpleLayer {
                                 });
                             };
                         }
+                        let mut block = 0;
                         if let Some(ref media) = self.shared_data.playback {
                             if event.position.0 >= media.x_at as f64 {
-                                if self.shared_data.selected != Some(0) {
+                                if self.shared_data.selected != Some(block) {
                                     status_bar_bg!(media.x_at, media.width, self, monitor, qh);
                                     monitor.output.frame(qh);
                                     if monitor.info_output.is_none() {
@@ -2236,16 +2288,34 @@ impl PointerHandler for SimpleLayer {
                                         );
                                         let viewport = Viewport::with_physical_size(
                                             Size {
-                                                width: (256
-                                                    + (self.bar_settings.padding_y as u32 * 2))
-                                                    * monitor.output.viewport.scale_factor() as u32,
-                                                height: (512
-                                                    + (self.bar_settings.padding_y as u32 * 2))
-                                                    * monitor.output.viewport.scale_factor() as u32,
+                                                width: (256.0
+                                                    + (self.bar_settings.padding_y as f64 * 2.0)
+                                                        * monitor.output.viewport.scale_factor())
+                                                    as u32,
+                                                height: (512.0
+                                                    + (self.bar_settings.padding_y as f64 * 2.0)
+                                                        * monitor.output.viewport.scale_factor())
+                                                    as u32,
                                             },
                                             monitor.output.viewport.scale_factor(),
                                         );
+                                        let fractional_scaler =
+                                            self.fractional_scaling.get_fractional_scale(
+                                                info_layer.wl_surface(),
+                                                qh,
+                                                GlobalData,
+                                            );
+                                        self.fractional_map.insert(
+                                            fractional_scaler.id(),
+                                            info_layer.wl_surface().id(),
+                                        );
                                         monitor.info_output = Some(Output {
+                                            // fractional_scaler,
+                                            viewporter_vp: self.viewporter.get_viewport(
+                                                info_layer.wl_surface(),
+                                                qh,
+                                                GlobalData,
+                                            ),
                                             layer_surface: info_layer,
                                             frame_req: false,
                                             mask: Mask::new(
@@ -2258,43 +2328,47 @@ impl PointerHandler for SimpleLayer {
                                             viewport,
                                         });
                                     }
-                                    self.select_block(Some(0), event.surface.id());
+                                    self.select_block(Some(block), event.surface.id());
                                 }
                                 return;
                             }
                         }
 
                         if let Some(ref connman) = self.shared_data.connman {
+                            block += 2;
                             if event.position.0 >= connman.x_at as f64 {
-                                if self.shared_data.selected != Some(2) {
+                                if self.shared_data.selected != Some(block) {
                                     status_bar_bg!(connman.x_at, connman.width, self, monitor, qh);
                                     monitor.output.frame(qh);
-                                    self.select_block(Some(2), event.surface.id());
+                                    self.select_block(Some(block), event.surface.id());
                                 }
                                 return;
                             }
                         }
 
                         if let Some(ref bat_block) = self.shared_data.bat_block {
-                            if event.position.0 >= bat_block.x_at as f64 {
-                                if self.shared_data.selected != Some(4) {
-                                    status_bar_bg!(
-                                        bat_block.x_at,
-                                        bat_block.width,
-                                        self,
-                                        monitor,
-                                        qh
-                                    );
-                                    monitor.output.frame(qh);
-                                    self.select_block(Some(4), event.surface.id());
+                            for (x_at, width) in bat_block
+                                .xs_at
+                                .iter()
+                                .copied()
+                                .zip(bat_block.widths.iter().copied())
+                            {
+                                block += 2;
+                                if event.position.0 >= x_at as f64 {
+                                    if self.shared_data.selected != Some(block) {
+                                        status_bar_bg!(x_at, width, self, monitor, qh);
+                                        monitor.output.frame(qh);
+                                        self.select_block(Some(block), event.surface.id());
+                                    }
+                                    return;
                                 }
-                                return;
                             }
                         }
 
                         if let Some(ref brightness) = self.shared_data.brightness {
+                            block += 2;
                             if event.position.0 >= brightness.x_at as f64 {
-                                if self.shared_data.selected != Some(6) {
+                                if self.shared_data.selected != Some(block) {
                                     status_bar_bg!(
                                         brightness.x_at,
                                         brightness.width,
@@ -2303,33 +2377,36 @@ impl PointerHandler for SimpleLayer {
                                         qh
                                     );
                                     monitor.output.frame(qh);
-                                    self.select_block(Some(6), event.surface.id());
+                                    self.select_block(Some(block), event.surface.id());
                                 }
                                 return;
                             }
                         }
 
                         if let Some(ref time) = self.shared_data.time {
-                            if event.position.0 >= time.x_at as f64 {
-                                if self.shared_data.selected != Some(8) {
-                                    status_bar_bg!(time.x_at, time.width, self, monitor, qh);
-                                    monitor.output.frame(qh);
-                                    self.select_block(Some(8), event.surface.id());
+                            for i in 0..2 {
+                                block += 2;
+                                if event.position.0 >= time.xs_at[i] as f64 {
+                                    if self.shared_data.selected != Some(block) {
+                                        status_bar_bg!(
+                                            time.xs_at[i],
+                                            time.widths[i],
+                                            self,
+                                            monitor,
+                                            qh
+                                        );
+                                        monitor.output.frame(qh);
+                                        self.select_block(Some(block), event.surface.id());
+                                    }
+                                    return;
                                 }
-                                return;
                             }
                         }
 
                         monitor.status_bar_bg = Arc::new(Primitive::Group {
                             primitives: Vec::new(),
                         });
-                        if let Some(mut info) = monitor.info_output.take() {
-                            // println!("info output destroy");
-                            // let buffers = info.buffers.take().unwrap();
-                            // buffers.buffers[0].wl_buffer().destroy();
-                            // buffers.buffers[1].wl_buffer().destroy();
-                            // info.layer_surface.wl_surface().destroy();
-                        }
+                        monitor.info_output.take();
                         monitor.output.frame(qh);
 
                         self.select_block(None, event.surface.id());
@@ -2709,15 +2786,31 @@ impl SimpleLayer {
                             change_text_color!(b + 1, self.bar_settings.color_active.0, primitives);
                             change_text_color!(b, self.bar_settings.color_active.0, primitives);
                             // change_text_color!(b, self.bar_settings.color_active.0, primitives);
-                            change_text_content!(b - 1, DIVIDER.to_owned(), primitives);
-                            change_text_content!(b + 1, DIVIDER.to_owned(), primitives);
+                            change_text_content!(
+                                b - 1,
+                                self.bar_settings.divider.clone(),
+                                primitives
+                            );
+                            change_text_content!(
+                                b + 1,
+                                self.bar_settings.divider.clone(),
+                                primitives
+                            );
                             // change_text_color!(b, self.bar_settings.color_active.0, primitives);
                         }
                         change_text_color!(block + 1, self.bar_settings.color_active.1, primitives);
                         change_text_color!(block, self.bar_settings.color_inactive.1, primitives);
                         // change_text_color!(block, self.bar_settings.color_inactive.1, primitives);
-                        change_text_content!(block - 1, DIVIDER_HARD.to_owned(), primitives);
-                        change_text_content!(block + 1, DIVIDER_HARD.to_owned(), primitives);
+                        change_text_content!(
+                            block - 1,
+                            self.bar_settings.divider_hard.clone(),
+                            primitives
+                        );
+                        change_text_content!(
+                            block + 1,
+                            self.bar_settings.divider_hard.clone(),
+                            primitives
+                        );
                         // change_text_color!(block, self.bar_settings.color_inactive.1, primitives);
                     }
                     _ => unreachable!(),
@@ -2729,8 +2822,16 @@ impl SimpleLayer {
                             change_text_color!(b + 1, self.bar_settings.color_active.0, primitives);
                             change_text_color!(b, self.bar_settings.color_active.0, primitives);
                             // change_text_color!(b, self.bar_settings.color_active.0, primitives);
-                            change_text_content!(b - 1, DIVIDER.to_owned(), primitives);
-                            change_text_content!(b + 1, DIVIDER.to_owned(), primitives);
+                            change_text_content!(
+                                b - 1,
+                                self.bar_settings.divider.clone(),
+                                primitives
+                            );
+                            change_text_content!(
+                                b + 1,
+                                self.bar_settings.divider.clone(),
+                                primitives
+                            );
                             // change_text_color!(b, self.bar_settings.color_active.0, primitives);
                         }
                     }
@@ -2916,7 +3017,7 @@ impl
                                 INNER JOIN \
                                 moz_places on \
                                 moz_bookmarks.fk = moz_places.id \
-                                ORDER BY frecency;",
+                                ORDER BY frecency DESC;",
                                 )
                                 .unwrap();
 
@@ -2987,14 +3088,24 @@ impl
                                 );
                                 let viewport = Viewport::with_physical_size(
                                     Size {
-                                        width: (512 + (state.bar_settings.padding_y as u32 * 2))
-                                            * monitor.output.viewport.scale_factor() as u32,
-                                        height: (256 + (state.bar_settings.padding_y as u32 * 2))
-                                            * monitor.output.viewport.scale_factor() as u32,
+                                        width: (512.0 + (state.bar_settings.padding_y as f64 * 2.0)
+                                            * monitor.output.viewport.scale_factor()) as u32,
+                                        height: (256.0 + (state.bar_settings.padding_y as f64 * 2.0)
+                                            * monitor.output.viewport.scale_factor()) as u32,
                                     },
                                     monitor.output.viewport.scale_factor(),
                                 );
+                                let fractional_scaler = state
+                                        .fractional_scaling
+                                        .get_fractional_scale(
+                                            info_layer.wl_surface(),
+                                            qh,
+                                            GlobalData,
+                                        );
+                                state.fractional_map.insert(fractional_scaler.id(), info_layer.wl_surface().id());
                                 monitor.info_output = Some(Output {
+                                    // fractional_scaler,
+                                    viewporter_vp: state.viewporter.get_viewport(info_layer.wl_surface(), qh, GlobalData),
                                     layer_surface: info_layer,
                                     frame_req: false,
                                     mask: Mask::new(
@@ -3044,13 +3155,11 @@ impl
     }
 }
 
-impl client::Dispatch<cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1, GlobalData>
-    for SimpleLayer
-{
+impl client::Dispatch<WpFractionalScaleManagerV1, GlobalData> for SimpleLayer {
     fn event(
         _: &mut Self,
-        _: &cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1,
-        _: <cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1 as Proxy>::Event,
+        _: &WpFractionalScaleManagerV1,
+        _: <WpFractionalScaleManagerV1 as Proxy>::Event,
         _: &GlobalData,
         _: &Connection,
         _: &QueueHandle<Self>,
@@ -3058,13 +3167,90 @@ impl client::Dispatch<cursor_shape::wp_cursor_shape_manager_v1::WpCursorShapeMan
     }
 }
 
-impl client::Dispatch<cursor_shape::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1, GlobalData>
-    for SimpleLayer
-{
+impl client::Dispatch<WpFractionalScaleV1, GlobalData> for SimpleLayer {
+    fn event(
+        state: &mut Self,
+        proxy: &WpFractionalScaleV1,
+        event: <WpFractionalScaleV1 as Proxy>::Event,
+        _: &GlobalData,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        let wp_fractional_scale_v1::Event::PreferredScale { scale } = event else {
+            unreachable!()
+        };
+        let new_factor = scale as f32 / 120.0;
+        let surface_id = state.fractional_map.get(&proxy.id()).unwrap();
+        let output = match state.output_type_map.get(&surface_id) {
+            Some(OutputType::Bar) => {
+                if let Some(monitor) = state.monitors.get_mut(&surface_id) {
+                    &mut monitor.output
+                } else {
+                    return;
+                }
+            }
+            Some(OutputType::Info(id)) => {
+                if let Some(monitor) = state.monitors.get_mut(id) {
+                    if let Some(ref mut output) = monitor.info_output {
+                        output
+                    } else {
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            }
+            None => return,
+        };
+
+        output.viewport = Viewport::with_physical_size(
+            Size {
+                width: (output.viewport.logical_size().width * new_factor) as u32,
+                height: (output.viewport.logical_size().height * new_factor) as u32,
+            },
+            new_factor as f64,
+        );
+        output.viewporter_vp.set_destination(
+            output.viewport.logical_size().width as _,
+            output.viewport.logical_size().height as _,
+        );
+        // // Initializes our double buffer one we've configured the layer shell
+        output.buffers = Some(Buffers::new(
+            &mut state.pool,
+            output.viewport.physical_width(),
+            output.viewport.physical_height(),
+            wl_shm::Format::Argb8888,
+        ));
+        output.mask = Mask::new(
+            output.viewport.physical_width(),
+            output.viewport.physical_height(),
+        )
+        .unwrap();
+        // output
+        //     .layer_surface
+        //     .set_buffer_scale(new_factor as u32)
+        //     .unwrap();
+        output.frame(qh);
+    }
+}
+
+impl client::Dispatch<WpViewporter, GlobalData> for SimpleLayer {
     fn event(
         _: &mut Self,
-        _: &cursor_shape::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1,
-        _: <cursor_shape::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1 as Proxy>::Event,
+        _: &WpViewporter,
+        _: <WpViewporter as Proxy>::Event,
+        _: &GlobalData,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl client::Dispatch<WpViewport, GlobalData> for SimpleLayer {
+    fn event(
+        _: &mut Self,
+        _: &WpViewport,
+        _: <WpViewport as Proxy>::Event,
         _: &GlobalData,
         _: &Connection,
         _: &QueueHandle<Self>,

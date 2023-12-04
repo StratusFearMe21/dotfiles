@@ -261,7 +261,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
 
     import_cache(&data.token, &data.cache_path);
 
-    loop {
+    'mainloop: loop {
         if data.timeout {
             if Instant::now() >= data.scrobble_deadline {
                 std::thread::park();
@@ -282,205 +282,85 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
             scrobble("single", &data.payload, &data.token, &data.cache_path);
             data.scrobble = false;
         } else {
-            match mpv.event_context_mut().wait_event(0.0) {
-                Some(Ok(Event::Shutdown)) => break,
-                Some(Ok(Event::ClientMessage(m))) => {
-                    if m[0] == "key-binding" {
-                        let score = match m[1] {
-                            "listenbrainz-love" => 1,
-                            "listenbrainz-hate" => -1,
-                            "listenbrainz-unrate" => 0,
-                            _ => continue,
-                        };
+            loop {
+                match mpv.event_context_mut().wait_event(0.0) {
+                    Some(Ok(Event::Shutdown)) => break 'mainloop,
+                    Some(Ok(Event::ClientMessage(m))) => {
+                        if m[0] == "key-binding" {
+                            let score = match m[1] {
+                                "listenbrainz-love" => 1,
+                                "listenbrainz-hate" => -1,
+                                "listenbrainz-unrate" => 0,
+                                _ => continue,
+                            };
 
-                        if data
-                            .payload
-                            .track_metadata
-                            .additional_info
-                            .recording_mbid
-                            .is_empty()
-                        {
-                            eprintln!(
-                                "This song is unknown to ListenBrainz, and \
+                            if data
+                                .payload
+                                .track_metadata
+                                .additional_info
+                                .recording_mbid
+                                .is_empty()
+                            {
+                                eprintln!(
+                                    "This song is unknown to ListenBrainz, and \
                                  cannot be rated"
-                            );
-                        }
-
-                        let feedback = LoveHate {
-                            recording_mbid: &data
-                                .payload
-                                .track_metadata
-                                .additional_info
-                                .recording_mbid,
-                            score,
-                        };
-
-                        let status = ureq::post(
-                            "https://api.listenbrainz.org/1/feedback/recording-feedback",
-                        )
-                        .set("Authorization", &data.token)
-                        .send_json(feedback);
-
-                        if status.is_err() {
-                            eprintln!("Error submitting feedback: {:?}", status);
-                        } else {
-                            eprintln!("Feedback submitted successfully");
-                        }
-                    }
-                }
-                Some(Ok(Event::PropertyChange { name, change, .. })) => {
-                    if name == "pause" && data.scrobble {
-                        let PropertyData::Flag(paused) = change else {
-                            unreachable!();
-                        };
-
-                        if paused {
-                            data.pause_instant = Instant::now();
-                            data.timeout = false;
-                        } else {
-                            data.scrobble_deadline =
-                                data.scrobble_deadline + data.pause_instant.elapsed();
-                            data.timeout = true;
-                        }
-                    } else if name == "speed" && data.scrobble {
-                        let PropertyData::Double(speed) = change else {
-                            unreachable!();
-                        };
-
-                        let duration = mpv.get_property::<f64>("duration").unwrap();
-                        let pos = mpv.get_property::<f64>("time-pos").unwrap();
-                        data.scrobble_deadline = Instant::now()
-                            + Duration::from_secs_f64(scrobble_duration!(duration, speed) - pos);
-                        data.payload.track_metadata.additional_info.duration_ms =
-                            (duration * 1000.0) as u64;
-                        data.timeout = true;
-                    }
-                }
-                Some(Ok(Event::Seek)) => {
-                    if mpv.get_property::<i64>("time-pos").unwrap() == 0 {
-                        let duration = mpv.get_property::<f64>("duration").unwrap();
-                        let speed = mpv.get_property::<f64>("speed").unwrap();
-
-                        data.scrobble_deadline = Instant::now()
-                            + Duration::from_secs_f64(scrobble_duration!(duration, speed));
-                        data.payload.track_metadata.additional_info.duration_ms =
-                            (duration * 1000.0) as u64;
-                        data.timeout = true;
-                    }
-                }
-                Some(Ok(Event::FileLoaded)) => {
-                    let audio_pts: Result<i64, libmpv::Error> = mpv.get_property("audio-pts");
-                    if audio_pts.is_err() || audio_pts.unwrap() < 1 {
-                        data.timeout = false;
-
-                        data.payload.track_metadata.additional_info.release_mbid = String::new();
-                        data.payload.track_metadata.additional_info.artist_mbids = Vec::new();
-                        data.payload.track_metadata.additional_info.recording_mbid = String::new();
-                        data.payload.track_metadata.artist_name = String::new();
-                        data.payload.track_metadata.track_name = String::new();
-                        data.payload.track_metadata.release_name = String::new();
-                        for i in mpv
-                            .get_property::<libmpv::MpvNode>("metadata")
-                            .unwrap()
-                            .to_map()
-                            .unwrap()
-                        {
-                            #[cfg(debug_assertions)]
-                            dbg!(i.0);
-                            match i.0 {
-                                "MUSICBRAINZ_ALBUMID" | "MusicBrainz Album Id" => {
-                                    data.payload.track_metadata.additional_info.release_mbid =
-                                        i.1.to_str().unwrap().to_string()
-                                }
-                                "MUSICBRAINZ_ARTISTID" | "MusicBrainz Artist Id" => {
-                                    let artists = i.1.to_str().unwrap();
-
-                                    #[cfg(debug_assertions)]
-                                    dbg!(artists);
-
-                                    data.payload.track_metadata.additional_info.artist_mbids =
-                                        if memchr::memchr(b';', artists.as_bytes()).is_some() {
-                                            i.1.to_str()
-                                                .unwrap()
-                                                .split(";")
-                                                .map(|f| f.trim().to_string())
-                                                .collect()
-                                        } else {
-                                            i.1.to_str()
-                                                .unwrap()
-                                                .split("/")
-                                                .map(|f| f.trim().to_string())
-                                                .collect()
-                                        };
-                                }
-                                "MUSICBRAINZ_TRACKID" | "http://musicbrainz.org" => {
-                                    data.payload.track_metadata.additional_info.recording_mbid =
-                                        i.1.to_str().unwrap().to_string();
-                                }
-                                "ARTIST" | "artist" => {
-                                    data.payload.track_metadata.artist_name =
-                                        i.1.to_str().unwrap().to_string();
-                                }
-                                "TITLE" | "title" => {
-                                    data.payload.track_metadata.track_name =
-                                        i.1.to_str().unwrap().to_string();
-                                }
-                                "ALBUM" | "album" => {
-                                    data.payload.track_metadata.release_name =
-                                        i.1.to_str().unwrap().to_string();
-                                }
-                                _ => {}
+                                );
                             }
-                        }
 
-                        #[cfg(debug_assertions)]
-                        {
-                            dbg!(
-                                *mpv.get_property::<MpvStr>("filename").unwrap()
-                                    != data.payload.track_metadata.track_name
-                            );
-                            dbg!(!data.payload.track_metadata.artist_name.is_empty());
-                            dbg!(!data.payload.track_metadata.track_name.is_empty());
-                            dbg!(!data.payload.track_metadata.release_name.is_empty());
-                            #[cfg(feature = "only-scrobble-if-mbid")]
-                            dbg!(!data
-                                .payload
-                                .track_metadata
-                                .additional_info
-                                .release_mbid
-                                .is_empty());
-                        }
-
-                        data.scrobble = (*mpv.get_property::<MpvStr>("filename").unwrap()
-                            != data.payload.track_metadata.track_name)
-                            && !data.payload.track_metadata.artist_name.is_empty()
-                            && !data.payload.track_metadata.track_name.is_empty()
-                            && !data.payload.track_metadata.release_name.is_empty();
-
-                        #[cfg(feature = "only-scrobble-if-mbid")]
-                        {
-                            data.scrobble = data.scrobble
-                                && !data
+                            let feedback = LoveHate {
+                                recording_mbid: &data
                                     .payload
                                     .track_metadata
                                     .additional_info
-                                    .release_mbid
-                                    .is_empty();
+                                    .recording_mbid,
+                                score,
+                            };
+
+                            let status = ureq::post(
+                                "https://api.listenbrainz.org/1/feedback/recording-feedback",
+                            )
+                            .set("Authorization", &data.token)
+                            .send_json(feedback);
+
+                            if status.is_err() {
+                                eprintln!("Error submitting feedback: {:?}", status);
+                            } else {
+                                eprintln!("Feedback submitted successfully");
+                            }
                         }
+                    }
+                    Some(Ok(Event::PropertyChange { name, change, .. })) => {
+                        if name == "pause" && data.scrobble {
+                            let PropertyData::Flag(paused) = change else {
+                                unreachable!();
+                            };
 
-                        if data
-                            .payload
-                            .track_metadata
-                            .additional_info
-                            .recording_mbid
-                            .is_empty()
-                        {
-                            let filename: MpvStr = mpv.get_property("path").unwrap();
+                            if paused {
+                                data.pause_instant = Instant::now();
+                                data.timeout = false;
+                            } else {
+                                data.scrobble_deadline =
+                                    data.scrobble_deadline + data.pause_instant.elapsed();
+                                data.timeout = true;
+                            }
+                        } else if name == "speed" && data.scrobble {
+                            let PropertyData::Double(speed) = change else {
+                                unreachable!();
+                            };
 
-                            let _ = read_recording_id(&filename, &mut data);
+                            let duration = mpv.get_property::<f64>("duration").unwrap();
+                            let pos = mpv.get_property::<f64>("time-pos").unwrap();
+                            data.scrobble_deadline = Instant::now()
+                                + Duration::from_secs_f64(
+                                    scrobble_duration!(duration, speed) - pos,
+                                );
+                            data.payload.track_metadata.additional_info.duration_ms =
+                                (duration * 1000.0) as u64;
+                            data.timeout = true;
                         }
-
-                        if data.scrobble {
+                    }
+                    Some(Ok(Event::Seek)) => {
+                        if mpv.get_property::<i64>("time-pos").unwrap() == 0 {
                             let duration = mpv.get_property::<f64>("duration").unwrap();
                             let speed = mpv.get_property::<f64>("speed").unwrap();
 
@@ -489,14 +369,147 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
                             data.payload.track_metadata.additional_info.duration_ms =
                                 (duration * 1000.0) as u64;
                             data.timeout = true;
-
-                            data.payload.listened_at = None;
-                            scrobble("playing_now", &data.payload, &data.token, &data.cache_path);
                         }
                     }
+                    Some(Ok(Event::FileLoaded)) => {
+                        let audio_pts: Result<i64, libmpv::Error> = mpv.get_property("audio-pts");
+                        if audio_pts.is_err() || audio_pts.unwrap() < 1 {
+                            data.timeout = false;
+
+                            data.payload.track_metadata.additional_info.release_mbid =
+                                String::new();
+                            data.payload.track_metadata.additional_info.artist_mbids = Vec::new();
+                            data.payload.track_metadata.additional_info.recording_mbid =
+                                String::new();
+                            data.payload.track_metadata.artist_name = String::new();
+                            data.payload.track_metadata.track_name = String::new();
+                            data.payload.track_metadata.release_name = String::new();
+                            for i in mpv
+                                .get_property::<libmpv::MpvNode>("metadata")
+                                .unwrap()
+                                .to_map()
+                                .unwrap()
+                            {
+                                #[cfg(debug_assertions)]
+                                dbg!(i.0);
+                                match i.0 {
+                                    "MUSICBRAINZ_ALBUMID" | "MusicBrainz Album Id" => {
+                                        data.payload.track_metadata.additional_info.release_mbid =
+                                            i.1.to_str().unwrap().to_string()
+                                    }
+                                    "MUSICBRAINZ_ARTISTID" | "MusicBrainz Artist Id" => {
+                                        let artists = i.1.to_str().unwrap();
+
+                                        #[cfg(debug_assertions)]
+                                        dbg!(artists);
+
+                                        data.payload.track_metadata.additional_info.artist_mbids =
+                                            if memchr::memchr(b';', artists.as_bytes()).is_some() {
+                                                i.1.to_str()
+                                                    .unwrap()
+                                                    .split(";")
+                                                    .map(|f| f.trim().to_string())
+                                                    .collect()
+                                            } else {
+                                                i.1.to_str()
+                                                    .unwrap()
+                                                    .split("/")
+                                                    .map(|f| f.trim().to_string())
+                                                    .collect()
+                                            };
+                                    }
+                                    "MUSICBRAINZ_TRACKID" | "http://musicbrainz.org" => {
+                                        data.payload
+                                            .track_metadata
+                                            .additional_info
+                                            .recording_mbid = i.1.to_str().unwrap().to_string();
+                                    }
+                                    "ARTIST" | "artist" => {
+                                        data.payload.track_metadata.artist_name =
+                                            i.1.to_str().unwrap().to_string();
+                                    }
+                                    "TITLE" | "title" => {
+                                        data.payload.track_metadata.track_name =
+                                            i.1.to_str().unwrap().to_string();
+                                    }
+                                    "ALBUM" | "album" => {
+                                        data.payload.track_metadata.release_name =
+                                            i.1.to_str().unwrap().to_string();
+                                    }
+                                    _ => {}
+                                }
+                            }
+
+                            #[cfg(debug_assertions)]
+                            {
+                                dbg!(
+                                    *mpv.get_property::<MpvStr>("filename").unwrap()
+                                        != data.payload.track_metadata.track_name
+                                );
+                                dbg!(!data.payload.track_metadata.artist_name.is_empty());
+                                dbg!(!data.payload.track_metadata.track_name.is_empty());
+                                dbg!(!data.payload.track_metadata.release_name.is_empty());
+                                #[cfg(feature = "only-scrobble-if-mbid")]
+                                dbg!(!data
+                                    .payload
+                                    .track_metadata
+                                    .additional_info
+                                    .release_mbid
+                                    .is_empty());
+                            }
+
+                            data.scrobble = (*mpv.get_property::<MpvStr>("filename").unwrap()
+                                != data.payload.track_metadata.track_name)
+                                && !data.payload.track_metadata.artist_name.is_empty()
+                                && !data.payload.track_metadata.track_name.is_empty()
+                                && !data.payload.track_metadata.release_name.is_empty();
+
+                            #[cfg(feature = "only-scrobble-if-mbid")]
+                            {
+                                data.scrobble = data.scrobble
+                                    && !data
+                                        .payload
+                                        .track_metadata
+                                        .additional_info
+                                        .release_mbid
+                                        .is_empty();
+                            }
+
+                            if data
+                                .payload
+                                .track_metadata
+                                .additional_info
+                                .recording_mbid
+                                .is_empty()
+                            {
+                                let filename: MpvStr = mpv.get_property("path").unwrap();
+
+                                let _ = read_recording_id(&filename, &mut data);
+                            }
+
+                            if data.scrobble {
+                                let duration = mpv.get_property::<f64>("duration").unwrap();
+                                let speed = mpv.get_property::<f64>("speed").unwrap();
+
+                                data.scrobble_deadline = Instant::now()
+                                    + Duration::from_secs_f64(scrobble_duration!(duration, speed));
+                                data.payload.track_metadata.additional_info.duration_ms =
+                                    (duration * 1000.0) as u64;
+                                data.timeout = true;
+
+                                data.payload.listened_at = None;
+                                scrobble(
+                                    "playing_now",
+                                    &data.payload,
+                                    &data.token,
+                                    &data.cache_path,
+                                );
+                            }
+                        }
+                    }
+                    None => break,
+                    _ => {}
                 }
-                None => break,
-                _ => {}
             }
         }
     }
