@@ -43,5 +43,5 @@ fn main() {
     }
 
     out_enum.write_all(b"#[default] Invalid}").unwrap();
-    println!("cargo:rerun-if-changed=../tree-sitter-grz/src/parser.c");
+    println!("cargo:rerun-if-changed=../tree-sitter-dconfsomebar/src/parser.c");
 }
