@@ -2947,7 +2947,7 @@ impl SimpleLayer {
                                 &[],
                             );
                         }
-                        _ => unimplemented!(),
+                        _ => {}
                     }
                     // Damage the entire window
                     output.layer_surface.wl_surface().damage_buffer(
