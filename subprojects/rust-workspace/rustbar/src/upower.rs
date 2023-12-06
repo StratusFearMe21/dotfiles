@@ -18,7 +18,19 @@ pub enum BatteryState {
     PendingDischarge = 6,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, FromPrimitive)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default, FromPrimitive)]
+#[repr(u32)]
+pub enum WarningLevel {
+    #[default]
+    Unknown = 0,
+    None = 1,
+    Discharging = 2,
+    Low = 3,
+    Critical = 4,
+    Action = 5,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default, FromPrimitive)]
 #[repr(u32)]
 pub enum BatteryType {
     #[default]

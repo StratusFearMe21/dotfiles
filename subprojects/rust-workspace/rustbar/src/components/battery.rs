@@ -10,7 +10,10 @@ use dbus::arg::RefArg;
 
 use crate::{
     add_match,
-    upower::{self, BatteryState, BatteryType, OrgFreedesktopUPower, OrgFreedesktopUPowerDevice},
+    upower::{
+        self, BatteryState, BatteryType, OrgFreedesktopUPower, OrgFreedesktopUPowerDevice,
+        WarningLevel,
+    },
 };
 
 macro_rules! match_bat_type {
@@ -128,7 +131,7 @@ impl BatteryBlock {
         }
     }
 
-    pub fn fmt(&'static self) -> impl Iterator<Item = String> {
+    pub fn fmt(&'static self) -> impl Iterator<Item = (String, WarningLevel)> {
         self.bat_devices.values().map(|i| {
             let mut f = String::new();
             std::fmt::Write::write_fmt(
@@ -144,7 +147,7 @@ impl BatteryBlock {
             if i.state != BatteryState::Unknown {
                 std::fmt::Write::write_fmt(&mut f, format_args!("{:?}{}", i.time, i.time)).unwrap();
             }
-            f
+            (f, i.warning_level)
         })
     }
 
@@ -198,6 +201,9 @@ impl BatteryBlock {
                     device.time = TimeTo::Full(time_to_full as f32);
                 }
             }
+            if let Some(warning_level) = property.changed_properties.get("WarningLevel") {
+                device.warning_level = WarningLevel::from(warning_level.as_u64().unwrap() as u32);
+            }
         }
     }
 
@@ -226,6 +232,7 @@ pub struct BatteryDevice {
     time: TimeTo,
     bat_type: BatteryType,
     percentage: u32,
+    pub warning_level: WarningLevel,
 }
 
 impl BatteryDevice {
@@ -238,6 +245,7 @@ impl BatteryDevice {
         if bat_type != BatteryType::LinePower && bat_type != BatteryType::Unknown {
             let percentage = proxy.percentage().unwrap().floor() as u32;
             let state = BatteryState::from(proxy.state().unwrap());
+            let warning_level = WarningLevel::from(proxy.warning_level().unwrap());
             let mut time = if matches!(
                 state,
                 BatteryState::Charging | BatteryState::FullyCharged | BatteryState::PendingCharge
@@ -258,6 +266,7 @@ impl BatteryDevice {
                 proxy.path.into_static(),
                 BatteryDevice {
                     percentage,
+                    warning_level,
                     state,
                     time,
                     bat_type,

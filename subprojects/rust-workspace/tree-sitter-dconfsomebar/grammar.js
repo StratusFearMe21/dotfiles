@@ -25,7 +25,6 @@ module.exports = grammar({
       $.time_servers,
       $.bar_show_time,
       $.divider,
-      $.divider_hard,
     ),
     font: _ => "/dotfiles/somebar/font", 
     time_block: _ => "/dotfiles/somebar/time-block", 
@@ -46,7 +45,6 @@ module.exports = grammar({
     time_servers: _ => "/dotfiles/somebar/time-servers", 
     bar_show_time: _ => "/dotfiles/somebar/bar-show-time", 
     divider: _ => "/dotfiles/somebar/divider",
-    divider_hard: _ => "/dotfiles/somebar/divider-hard",
   }
 });
 

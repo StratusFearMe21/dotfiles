@@ -2,9 +2,11 @@
 mkdir -p ~/.config/nushell/
 mkdir -p ~/.config/foot
 mkdir -p ~/.config/tofi
+mkdir -p ~/.config/mako
 mkdir -p ~/.config/gtk-3.0
 mkdir -p ~/.icons
 ln -sf /usr/share/dotfiles/foot.ini ~/.config/foot/foot.ini
+ln -sf /usr/share/dotfiles/mako.config ~/.config/mako/config
 ln -sf /usr/share/dotfiles/tofi-config ~/.config/tofi/config
 ln -sf /usr/share/dotfiles/gtk-3.0-settings.ini ~/.config/gtk-3.0/settings.ini
 rm -rf ~/.config/helix

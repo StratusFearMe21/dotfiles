@@ -210,14 +210,24 @@ impl From<WobCommand> for char {
     }
 }
 
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum SelectedBlock {
+    Time(usize),
+    Brightness,
+    Battery(usize),
+    Connman,
+    Playback,
+    None,
+}
+
 pub struct SharedData {
     time: Option<TimeBlock>,
-    playback: Option<PlaybackBlock>,
-    connman: Option<ConnmanBlock>,
     brightness: Option<BrightnessBlock>,
     bat_block: Option<BatteryBlock>,
+    connman: Option<ConnmanBlock>,
+    playback: Option<PlaybackBlock>,
     time_handle: RegistrationToken,
-    pub selected: Option<usize>,
+    pub selected: SelectedBlock,
 }
 
 impl SharedData {
@@ -338,10 +348,11 @@ impl SharedData {
                                             },
                                         });
                                     shared_data.bar_settings.default_font = new_font;
+                                    let mut tmp = [0; 4];
                                     shared_data.ascii_font_width = shared_data
                                         .iced
                                         .measure(
-                                            &shared_data.bar_settings.divider,
+                                            shared_data.bar_settings.divider.encode_utf8(&mut tmp),
                                             shared_data.iced.default_size(),
                                             LineHeight::Relative(1.0),
                                             shared_data.iced.default_font(),
@@ -393,19 +404,13 @@ impl SharedData {
                                     shared_data.write_bar(&qh);
                                 }
                                 Some(NodeKind::Divider) => {
-                                    shared_data.bar_settings.divider = dconf_read_variant(
-                                        shared_data.dconf,
-                                        "/dotfiles/somebar/divider",
-                                    )
-                                    .unwrap_or_else(|| "".to_owned());
-                                    shared_data.write_bar(&qh);
-                                }
-                                Some(NodeKind::DividerHard) => {
-                                    shared_data.bar_settings.divider_hard = dconf_read_variant(
-                                        shared_data.dconf,
-                                        "/dotfiles/somebar/divider-hard",
-                                    )
-                                    .unwrap_or_else(|| "".to_owned());
+                                    shared_data.bar_settings.divider =
+                                        dconf_read_variant::<String>(
+                                            shared_data.dconf,
+                                            "/dotfiles/somebar/divider",
+                                        )
+                                        .and_then(|d| d.chars().next())
+                                        .unwrap_or('');
                                     shared_data.write_bar(&qh);
                                 }
                                 Some(NodeKind::DateFmt) => {
@@ -724,22 +729,92 @@ impl SharedData {
                 bat_block: battery,
                 playback,
                 connman,
-                selected: None,
+                selected: SelectedBlock::None,
             }
         }
     }
 }
 
+macro_rules! selected_block_selected {
+    ($shared_data:expr,$block:expr) => {
+        $block == $shared_data.selected // || $shared_data.other_selected.iter().any(|&b| $block == b)
+    };
+}
+
 impl SharedData {
     fn fmt(
         &mut self,
-        color: Color,
+        colors: (Color, (Color, Color)),
         backend: &iced_tiny_skia::Backend,
-        output: &Monitor,
+        logical_size: Size<f32>,
         padding_x: f32,
         padding_y: f32,
-        divider: &str,
+        divider: char,
     ) -> (Primitive, Size<f32>) {
+        let mut divider_tmp: [u8; 4] = [0; 4];
+        let divider = divider.encode_utf8(&mut divider_tmp);
+        let mut divider_hard_tmp: [u8; 4] = [0; 4];
+        std::io::Cursor::new(divider_hard_tmp.as_mut_slice())
+            .write_all(divider.as_bytes())
+            .unwrap();
+        divider_hard_tmp[2] -= 1;
+        let divider_hard = unsafe { std::str::from_utf8_unchecked(&divider_hard_tmp[..3]) };
+        macro_rules! status_bar_bg {
+            ($x_at:expr,$width:expr,$height:expr) => {
+                Primitive::Quad {
+                    bounds: Rectangle {
+                        x: $x_at,
+                        y: 0.0,
+                        width: $width,
+                        height: $height,
+                    },
+                    background: Background::Color(colors.0),
+                    border_radius: [0.0, 0.0, 0.0, 0.0],
+                    border_width: 0.0,
+                    border_color: Color::TRANSPARENT,
+                }
+            };
+        }
+        macro_rules! select_color {
+            ($selected:expr) => {
+                if $selected {
+                    colors.1 .0
+                } else {
+                    colors.0
+                }
+            };
+        }
+        macro_rules! select_divider_color {
+            ($selected:expr) => {
+                if $selected {
+                    colors.1 .1
+                } else {
+                    colors.0
+                }
+            };
+        }
+        macro_rules! select_divider {
+            ($selected:expr) => {
+                if $selected {
+                    divider_hard.to_owned()
+                } else {
+                    divider.to_owned()
+                }
+            };
+        }
+        macro_rules! set_full_divider_if_selected {
+            ($selected:expr,$primitives:expr) => {
+                if $selected {
+                    match $primitives.last_mut() {
+                        Some(Primitive::Text { content, .. }) => {
+                            content.clear();
+                            content.push_str(divider_hard);
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            };
+        }
         let divider_measurement = backend.measure(
             divider,
             backend.default_size() + padding_y,
@@ -749,10 +824,14 @@ impl SharedData {
             Shaping::Basic,
         );
         let mut primitives = Vec::new();
-        let logical_size = output.output.viewport.logical_size();
         let mut x = logical_size.width - padding_x;
 
         if let Some(ref mut media) = self.playback {
+            let selected = selected_block_selected!(self, SelectedBlock::Playback);
+            let l = primitives.len();
+            primitives.push(Primitive::Group {
+                primitives: Vec::new(),
+            });
             let mut content = String::new();
             media.fmt(&mut content);
             let measurement = backend
@@ -774,7 +853,7 @@ impl SharedData {
                     width: logical_size.width,
                     height: logical_size.height / 2.0,
                 },
-                color,
+                color: select_color!(selected),
                 size: backend.default_size(),
                 line_height: LineHeight::Relative(1.0),
                 font: backend.default_font(),
@@ -784,14 +863,14 @@ impl SharedData {
             });
             x -= divider_measurement.width;
             primitives.push(Primitive::Text {
-                content: divider.to_owned(),
+                content: select_divider!(selected),
                 bounds: Rectangle {
                     x,
                     y: logical_size.height / 2.0,
                     width: logical_size.width,
                     height: logical_size.height,
                 },
-                color,
+                color: select_divider_color!(selected),
                 size: backend.default_size() + padding_y * 2.0,
                 line_height: LineHeight::Relative(1.0),
                 font: backend.default_font(),
@@ -801,9 +880,18 @@ impl SharedData {
             });
             media.x_at = x;
             media.width = measurement + divider_measurement.width + padding_x;
+            if selected {
+                primitives[l] = status_bar_bg!(media.x_at, media.width, logical_size.height);
+            }
         }
 
         if let Some(ref mut connman) = self.connman {
+            let selected = selected_block_selected!(self, SelectedBlock::Connman);
+            set_full_divider_if_selected!(selected, primitives);
+            let l = primitives.len();
+            primitives.push(Primitive::Group {
+                primitives: Vec::new(),
+            });
             let mut content = String::new();
             connman.fmt(&mut content);
             let measurement = backend
@@ -825,7 +913,7 @@ impl SharedData {
                     width: logical_size.width,
                     height: logical_size.height / 2.0,
                 },
-                color,
+                color: select_color!(selected),
                 size: backend.default_size(),
                 line_height: LineHeight::Relative(1.0),
                 font: backend.default_font(),
@@ -835,14 +923,14 @@ impl SharedData {
             });
             x -= divider_measurement.width;
             primitives.push(Primitive::Text {
-                content: divider.to_owned(),
+                content: select_divider!(selected),
                 bounds: Rectangle {
                     x,
                     y: logical_size.height / 2.0,
                     width: logical_size.width,
                     height: logical_size.height,
                 },
-                color,
+                color: select_divider_color!(selected),
                 size: backend.default_size() + padding_y * 2.0,
                 line_height: LineHeight::Relative(1.0),
                 font: backend.default_font(),
@@ -853,15 +941,31 @@ impl SharedData {
 
             connman.x_at = x;
             connman.width = measurement + divider_measurement.width;
+            if selected {
+                primitives[l] = status_bar_bg!(connman.x_at, connman.width, logical_size.height);
+            }
         }
 
         if let Some(ref mut bat_block) = self.bat_block {
             bat_block.xs_at.clear();
             bat_block.widths.clear();
-            for content in
+            for (i, (content, warning_level)) in
                 unsafe { std::mem::transmute::<&BatteryBlock, &'static BatteryBlock>(&bat_block) }
                     .fmt()
+                    .enumerate()
             {
+                let selected = selected_block_selected!(self, SelectedBlock::Battery(i))
+                    || matches!(
+                        warning_level,
+                        upower::WarningLevel::Low
+                            | upower::WarningLevel::Critical
+                            | upower::WarningLevel::Action
+                    );
+                set_full_divider_if_selected!(selected, primitives);
+                let l = primitives.len();
+                primitives.push(Primitive::Group {
+                    primitives: Vec::new(),
+                });
                 let current_measurement = backend
                     .measure(
                         &content,
@@ -882,7 +986,7 @@ impl SharedData {
                         width: logical_size.width,
                         height: logical_size.height / 2.0,
                     },
-                    color,
+                    color: select_color!(selected),
                     size: backend.default_size(),
                     line_height: LineHeight::Relative(1.0),
                     font: backend.default_font(),
@@ -892,14 +996,14 @@ impl SharedData {
                 });
                 x -= divider_measurement.width;
                 primitives.push(Primitive::Text {
-                    content: divider.to_owned(),
+                    content: select_divider!(selected),
                     bounds: Rectangle {
                         x,
                         y: logical_size.height / 2.0,
                         width: logical_size.width,
                         height: logical_size.height,
                     },
-                    color,
+                    color: select_divider_color!(selected),
                     size: backend.default_size() + padding_y * 2.0,
                     line_height: LineHeight::Relative(1.0),
                     font: backend.default_font(),
@@ -909,13 +1013,21 @@ impl SharedData {
                 });
 
                 bat_block.xs_at.push(x);
-                bat_block
-                    .widths
-                    .push(current_measurement + divider_measurement.width);
+                let width = current_measurement + divider_measurement.width;
+                bat_block.widths.push(width);
+                if selected {
+                    primitives[l] = status_bar_bg!(x, width, logical_size.height);
+                }
             }
         }
 
         if let Some(ref mut brightness) = self.brightness {
+            let selected = selected_block_selected!(self, SelectedBlock::Brightness);
+            set_full_divider_if_selected!(selected, primitives);
+            let l = primitives.len();
+            primitives.push(Primitive::Group {
+                primitives: Vec::new(),
+            });
             let mut content = String::new();
             brightness.fmt(&mut content);
             let measurement = backend
@@ -937,7 +1049,7 @@ impl SharedData {
                     width: logical_size.width,
                     height: logical_size.height / 2.0,
                 },
-                color,
+                color: select_color!(selected),
                 size: backend.default_size(),
                 line_height: LineHeight::Relative(1.0),
                 font: backend.default_font(),
@@ -947,14 +1059,14 @@ impl SharedData {
             });
             x -= divider_measurement.width;
             primitives.push(Primitive::Text {
-                content: divider.to_owned(),
+                content: select_divider!(selected),
                 bounds: Rectangle {
                     x,
                     y: logical_size.height / 2.0,
                     width: logical_size.width,
                     height: logical_size.height,
                 },
-                color,
+                color: select_divider_color!(selected),
                 size: backend.default_size() + padding_y * 2.0,
                 line_height: LineHeight::Relative(1.0),
                 font: backend.default_font(),
@@ -965,12 +1077,22 @@ impl SharedData {
 
             brightness.x_at = x;
             brightness.width = measurement + divider_measurement.width;
+            if selected {
+                primitives[l] =
+                    status_bar_bg!(brightness.x_at, brightness.width, logical_size.height);
+            }
         }
 
         let mut height = 0.0;
 
         if let Some(ref mut time) = self.time {
             {
+                let selected = selected_block_selected!(self, SelectedBlock::Time(0));
+                set_full_divider_if_selected!(selected, primitives);
+                let l = primitives.len();
+                primitives.push(Primitive::Group {
+                    primitives: Vec::new(),
+                });
                 let mut content = String::new();
                 time.fmt_date(&mut content);
                 let measurement = backend.measure(
@@ -992,7 +1114,7 @@ impl SharedData {
                         width: logical_size.width,
                         height: logical_size.height / 2.0,
                     },
-                    color,
+                    color: select_color!(selected),
                     size: backend.default_size(),
                     line_height: LineHeight::Relative(1.0),
                     font: backend.default_font(),
@@ -1002,14 +1124,14 @@ impl SharedData {
                 });
                 x -= divider_measurement.width;
                 primitives.push(Primitive::Text {
-                    content: divider.to_owned(),
+                    content: select_divider!(selected),
                     bounds: Rectangle {
                         x,
                         y: logical_size.height / 2.0,
                         width: logical_size.width,
                         height: logical_size.height,
                     },
-                    color,
+                    color: select_divider_color!(selected),
                     size: backend.default_size() + padding_y * 2.0,
                     line_height: LineHeight::Relative(1.0),
                     font: backend.default_font(),
@@ -1020,9 +1142,19 @@ impl SharedData {
 
                 time.xs_at[0] = x;
                 time.widths[0] = measurement + padding_x;
+                if selected {
+                    primitives[l] =
+                        status_bar_bg!(time.xs_at[0], time.widths[0], logical_size.height);
+                }
             }
 
             {
+                let selected = selected_block_selected!(self, SelectedBlock::Time(1));
+                let l = primitives.len();
+                set_full_divider_if_selected!(selected, primitives);
+                primitives.push(Primitive::Group {
+                    primitives: Vec::new(),
+                });
                 let mut content = String::new();
                 time.fmt_time(&mut content);
                 let measurement = backend.measure(
@@ -1043,7 +1175,7 @@ impl SharedData {
                         width: logical_size.width,
                         height: logical_size.height / 2.0,
                     },
-                    color,
+                    color: select_color!(selected),
                     size: backend.default_size(),
                     line_height: LineHeight::Relative(1.0),
                     font: backend.default_font(),
@@ -1055,6 +1187,10 @@ impl SharedData {
 
                 time.xs_at[1] = x;
                 time.widths[1] = measurement + padding_x;
+                if selected {
+                    primitives[l] =
+                        status_bar_bg!(time.xs_at[1], time.widths[1], logical_size.height);
+                }
             }
         }
 
@@ -1161,10 +1297,9 @@ fn main() {
 
     let new_font: String = dconf_read_variant(dconf, "/dotfiles/somebar/font")
         .unwrap_or(String::from("FiraCode Nerd Font 14"));
-    let divider: String =
-        dconf_read_variant(dconf, "/dotfiles/somebar/divider").unwrap_or(String::from(""));
-    let divider_hard: String =
-        dconf_read_variant(dconf, "/dotfiles/somebar/divider-hard").unwrap_or(String::from(""));
+    let divider = dconf_read_variant::<String>(dconf, "/dotfiles/somebar/divider")
+        .and_then(|d| d.chars().next())
+        .unwrap_or('');
 
     let split = new_font.rsplit_once(' ').unwrap();
 
@@ -1180,8 +1315,9 @@ fn main() {
         },
     });
 
+    let mut tmp = [0; 4];
     let measured_text = backend.measure(
-        &divider,
+        divider.encode_utf8(&mut tmp),
         backend.default_size(),
         LineHeight::Relative(1.0),
         backend.default_font(),
@@ -1192,7 +1328,7 @@ fn main() {
         Shaping::Basic,
     );
 
-    let bar_settings = BarSettings::new(new_font, dconf, divider, divider_hard);
+    let bar_settings = BarSettings::new(new_font, dconf, divider);
 
     let bar_size = Size {
         width: 0.0,
@@ -1221,7 +1357,6 @@ fn main() {
         shm,
         event_loop.get_signal(),
         pool,
-        bar_size,
         backend,
         shared_data,
         dwl,
@@ -1289,7 +1424,46 @@ pub struct Monitor {
     tags: Tags,
     selected: bool,
     status_bar_primitives: Arc<Primitive>,
-    status_bar_bg: Arc<Primitive>,
+    bar_size: Size<f32>,
+}
+
+impl Monitor {
+    fn write_bar(
+        &mut self,
+        bar_settings: &BarSettings,
+        shared_data: &mut SharedData,
+        iced: &iced_tiny_skia::Backend,
+        qh: &QueueHandle<SimpleLayer>,
+    ) {
+        let (status_bar_primitives, bar_size) = shared_data.fmt(
+            if self.selected {
+                (
+                    bar_settings.color_active.0,
+                    (bar_settings.color_inactive.1, bar_settings.color_active.1),
+                )
+            } else {
+                (
+                    bar_settings.color_inactive.0,
+                    (bar_settings.color_inactive.1, bar_settings.color_active.1),
+                )
+            },
+            iced,
+            self.output.viewport.logical_size(),
+            bar_settings.padding_x,
+            bar_settings.padding_y,
+            bar_settings.divider,
+        );
+
+        self.status_bar_primitives = Arc::new(status_bar_primitives);
+        self.bar_size = bar_size;
+        self.bar_size.height += bar_settings.padding_y * 2.0;
+
+        if let Some(ref mut info) = self.info_output {
+            info.frame(qh);
+        }
+
+        self.output.frame(qh);
+    }
 }
 
 impl Output {
@@ -1313,8 +1487,7 @@ pub struct BarSettings {
     bar_show_time: u64,
     browser_path: String,
     browser: String,
-    divider: String,
-    divider_hard: String,
+    divider: char,
     top_bar: bool,
 }
 
@@ -1349,12 +1522,7 @@ fn parse_color(
 }
 
 impl BarSettings {
-    fn new(
-        default_font: String,
-        dconf: *mut DConfClient,
-        divider: String,
-        divider_hard: String,
-    ) -> BarSettings {
+    fn new(default_font: String, dconf: *mut DConfClient, divider: char) -> BarSettings {
         let mut color_active: [palette::Srgba; 2] = [
             palette::Srgba::from_components((1.0, 0.56, 0.25, 1.0)),
             palette::Srgba::from_components((0.2, 0.227, 0.25, 1.0)),
@@ -1418,7 +1586,6 @@ impl BarSettings {
                     .unwrap_or_else(|| "firedragon".to_owned())
             ),
             divider,
-            divider_hard,
         }
     }
 
@@ -1489,7 +1656,6 @@ pub struct SimpleLayer {
     exit: LoopSignal,
     loop_handle: LoopHandle<'static, SimpleLayer>,
     pool: SlotPool,
-    bar_size: Size<f32>,
     layer_shell: LayerShell,
     dwl: ZnetTapesoftwareDwlWmV1,
     fractional_scaling: WpFractionalScaleManagerV1,
@@ -1521,7 +1687,6 @@ impl SimpleLayer {
         shm: Shm,
         exit: LoopSignal,
         pool: SlotPool,
-        bar_size: Size<f32>,
         iced: iced_tiny_skia::Backend,
         shared_data: SharedData,
         dwl: ZnetTapesoftwareDwlWmV1,
@@ -1534,6 +1699,7 @@ impl SimpleLayer {
         fractional_scaling: WpFractionalScaleManagerV1,
         viewporter: WpViewporter,
     ) -> SimpleLayer {
+        let mut tmp = [0; 4];
         Self {
             registry_state,
             seat_state,
@@ -1547,11 +1713,10 @@ impl SimpleLayer {
             shared_data,
             layer_shell,
             compositor_state,
-            bar_size,
             loop_handle,
             ascii_font_width: iced
                 .measure(
-                    &bar_settings.divider,
+                    bar_settings.divider.encode_utf8(&mut tmp),
                     iced.default_size(),
                     LineHeight::Relative(1.0),
                     iced.default_font(),
@@ -1593,24 +1758,7 @@ impl SimpleLayer {
 
     fn write_bar(&mut self, qh: &QueueHandle<Self>) {
         for monitor in self.monitors.values_mut() {
-            let (status_bar_primitives, bar_size) = self.shared_data.fmt(
-                if monitor.selected {
-                    self.bar_settings.color_active.0
-                } else {
-                    self.bar_settings.color_inactive.0
-                },
-                &self.iced,
-                monitor,
-                self.bar_settings.padding_x,
-                self.bar_settings.padding_y,
-                &self.bar_settings.divider,
-            );
-
-            monitor.status_bar_primitives = Arc::new(status_bar_primitives);
-            self.bar_size = bar_size;
-            self.bar_size.height += self.bar_settings.padding_y * 2.0;
-
-            monitor.output.frame(qh);
+            monitor.write_bar(&self.bar_settings, &mut self.shared_data, &self.iced, qh);
         }
     }
 
@@ -1813,6 +1961,38 @@ impl OutputHandler for SimpleLayer {
             Some(&output),
         );
 
+        let mut viewport = Viewport::with_physical_size(
+            Size {
+                width: 1920,
+                height: 0,
+            },
+            1.0,
+        );
+
+        let (primitives, mut bar_size) = self.shared_data.fmt(
+            (
+                self.bar_settings.color_inactive.0,
+                (
+                    self.bar_settings.color_inactive.1,
+                    self.bar_settings.color_active.1,
+                ),
+            ),
+            &self.iced,
+            viewport.logical_size(),
+            self.bar_settings.padding_x,
+            self.bar_settings.padding_y,
+            self.bar_settings.divider,
+        );
+        bar_size.height += self.bar_settings.padding_y * 2.0;
+
+        viewport = Viewport::with_physical_size(
+            Size {
+                width: 0,
+                height: bar_size.height as u32,
+            },
+            1.0,
+        );
+
         layer.set_anchor(
             if self.bar_settings.top_bar {
                 Anchor::TOP
@@ -1821,9 +2001,9 @@ impl OutputHandler for SimpleLayer {
             } | Anchor::LEFT
                 | Anchor::RIGHT,
         );
-        layer.set_size(0, self.bar_size.height as u32);
+        layer.set_size(0, bar_size.height as u32);
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
-        layer.set_exclusive_zone(self.bar_size.height as i32);
+        layer.set_exclusive_zone(bar_size.height as i32);
 
         layer.commit();
 
@@ -1842,15 +2022,9 @@ impl OutputHandler for SimpleLayer {
                     .viewporter
                     .get_viewport(layer.wl_surface(), qh, GlobalData),
                 layer_surface: layer,
-                viewport: Viewport::with_physical_size(
-                    Size {
-                        width: 0,
-                        height: self.bar_size.height as u32,
-                    },
-                    1.0,
-                ),
+                viewport,
                 frame_req: false,
-                mask: Mask::new(1, self.bar_size.height as u32).unwrap(),
+                mask: Mask::new(1, bar_size.height as u32).unwrap(),
                 first_configure: true,
                 buffers: None,
                 // fractional_scaler,
@@ -1864,7 +2038,7 @@ impl OutputHandler for SimpleLayer {
             tags: Tags::new(
                 self.tag_count,
                 self.bar_settings.padding_x,
-                self.bar_size.height,
+                bar_size.height,
                 self.ascii_font_width,
                 &self.iced,
             ),
@@ -1873,26 +2047,13 @@ impl OutputHandler for SimpleLayer {
             status_bar_primitives: Arc::new(Primitive::Group {
                 primitives: Vec::new(),
             }),
-            status_bar_bg: Arc::new(Primitive::Group {
-                primitives: Vec::new(),
-            }),
+            bar_size,
         };
 
-        let (primitives, bar_size) = self.shared_data.fmt(
-            self.bar_settings.color_inactive.0,
-            &self.iced,
-            &new_output,
-            self.bar_settings.padding_x,
-            self.bar_settings.padding_y,
-            &self.bar_settings.divider,
-        );
         new_output.status_bar_primitives = Arc::new(primitives);
         self.output_type_map
             .insert(layer_id.clone(), OutputType::Bar);
         self.monitors.insert(layer_id, new_output);
-
-        self.bar_size = bar_size;
-        self.bar_size.height += self.bar_settings.padding_y * 2.0;
     }
 
     fn update_output(
@@ -1994,6 +2155,11 @@ impl LayerShellHandler for SimpleLayer {
                 Some(OutputType::Bar) => self.draw(qh, &layer.wl_surface().id()),
                 Some(OutputType::Info(id)) => self.draw_info_box(qh, &id.clone()),
                 None => {}
+            }
+        } else {
+            match output_type {
+                Some(OutputType::Bar) => self.write_bar(qh),
+                _ => {}
             }
         }
     }
@@ -2222,38 +2388,16 @@ impl PointerHandler for SimpleLayer {
                         cursor_device.set_shape(serial, wp_cursor_shape_device_v1::Shape::Default);
                     }
                     Leave { .. } => {
-                        monitor.status_bar_bg = Arc::new(Primitive::Group {
-                            primitives: Vec::new(),
-                        });
-                        monitor.output.frame(qh);
-                        monitor.info_output.take();
-                        self.select_block(None, event.surface.id());
+                        if self.shared_data.selected != SelectedBlock::None {
+                            monitor.info_output.take();
+                            self.shared_data.selected = SelectedBlock::None;
+                            self.write_bar(qh);
+                        }
                     }
                     Motion { .. } => {
-                        macro_rules! status_bar_bg {
-                            ($x_at:expr,$width:expr,$self:expr,$output:expr,$qh:expr) => {
-                                $output.status_bar_bg = Arc::new(Primitive::Quad {
-                                    bounds: Rectangle {
-                                        x: $x_at,
-                                        y: 0.0,
-                                        width: $width,
-                                        height: $self.bar_size.height,
-                                    },
-                                    background: Background::Color(
-                                        $self.bar_settings.color_active.0,
-                                    ),
-                                    border_radius: [0.0, 0.0, 0.0, 0.0],
-                                    border_width: 0.0,
-                                    border_color: Color::TRANSPARENT,
-                                });
-                            };
-                        }
-                        let mut block = 0;
                         if let Some(ref media) = self.shared_data.playback {
                             if event.position.0 >= media.x_at as f64 {
-                                if self.shared_data.selected != Some(block) {
-                                    status_bar_bg!(media.x_at, media.width, self, monitor, qh);
-                                    monitor.output.frame(qh);
+                                if self.shared_data.selected != SelectedBlock::Playback {
                                     if monitor.info_output.is_none() {
                                         let surface = self.compositor_state.create_surface(&qh);
                                         let info_layer = self.layer_shell.create_layer_surface(
@@ -2272,7 +2416,7 @@ impl PointerHandler for SimpleLayer {
                                             } | Anchor::RIGHT,
                                         );
                                         info_layer.set_size(
-                                            256 + (self.bar_settings.padding_y as u32 * 2),
+                                            256 + (self.bar_settings.padding_x as u32 * 2),
                                             512 + (self.bar_settings.padding_y as u32 * 2),
                                         );
                                         info_layer.set_keyboard_interactivity(
@@ -2289,7 +2433,7 @@ impl PointerHandler for SimpleLayer {
                                         let viewport = Viewport::with_physical_size(
                                             Size {
                                                 width: (256.0
-                                                    + (self.bar_settings.padding_y as f64 * 2.0)
+                                                    + (self.bar_settings.padding_x as f64 * 2.0)
                                                         * monitor.output.viewport.scale_factor())
                                                     as u32,
                                                 height: (512.0
@@ -2328,37 +2472,29 @@ impl PointerHandler for SimpleLayer {
                                             viewport,
                                         });
                                     }
-                                    self.select_block(Some(block), event.surface.id());
+                                    self.shared_data.selected = SelectedBlock::Playback;
+                                    self.write_bar(qh);
                                 }
                                 return;
                             }
                         }
 
                         if let Some(ref connman) = self.shared_data.connman {
-                            block += 2;
                             if event.position.0 >= connman.x_at as f64 {
-                                if self.shared_data.selected != Some(block) {
-                                    status_bar_bg!(connman.x_at, connman.width, self, monitor, qh);
-                                    monitor.output.frame(qh);
-                                    self.select_block(Some(block), event.surface.id());
+                                if self.shared_data.selected != SelectedBlock::Connman {
+                                    self.shared_data.selected = SelectedBlock::Connman;
+                                    self.write_bar(qh);
                                 }
                                 return;
                             }
                         }
 
                         if let Some(ref bat_block) = self.shared_data.bat_block {
-                            for (x_at, width) in bat_block
-                                .xs_at
-                                .iter()
-                                .copied()
-                                .zip(bat_block.widths.iter().copied())
-                            {
-                                block += 2;
+                            for (i, x_at) in bat_block.xs_at.iter().copied().enumerate() {
                                 if event.position.0 >= x_at as f64 {
-                                    if self.shared_data.selected != Some(block) {
-                                        status_bar_bg!(x_at, width, self, monitor, qh);
-                                        monitor.output.frame(qh);
-                                        self.select_block(Some(block), event.surface.id());
+                                    if self.shared_data.selected != SelectedBlock::Battery(i) {
+                                        self.shared_data.selected = SelectedBlock::Battery(i);
+                                        self.write_bar(qh);
                                     }
                                     return;
                                 }
@@ -2366,18 +2502,10 @@ impl PointerHandler for SimpleLayer {
                         }
 
                         if let Some(ref brightness) = self.shared_data.brightness {
-                            block += 2;
                             if event.position.0 >= brightness.x_at as f64 {
-                                if self.shared_data.selected != Some(block) {
-                                    status_bar_bg!(
-                                        brightness.x_at,
-                                        brightness.width,
-                                        self,
-                                        monitor,
-                                        qh
-                                    );
-                                    monitor.output.frame(qh);
-                                    self.select_block(Some(block), event.surface.id());
+                                if self.shared_data.selected != SelectedBlock::Brightness {
+                                    self.shared_data.selected = SelectedBlock::Brightness;
+                                    self.write_bar(qh);
                                 }
                                 return;
                             }
@@ -2385,31 +2513,21 @@ impl PointerHandler for SimpleLayer {
 
                         if let Some(ref time) = self.shared_data.time {
                             for i in 0..2 {
-                                block += 2;
                                 if event.position.0 >= time.xs_at[i] as f64 {
-                                    if self.shared_data.selected != Some(block) {
-                                        status_bar_bg!(
-                                            time.xs_at[i],
-                                            time.widths[i],
-                                            self,
-                                            monitor,
-                                            qh
-                                        );
-                                        monitor.output.frame(qh);
-                                        self.select_block(Some(block), event.surface.id());
+                                    if self.shared_data.selected != SelectedBlock::Time(i) {
+                                        self.shared_data.selected = SelectedBlock::Time(i);
+                                        self.write_bar(qh);
                                     }
                                     return;
                                 }
                             }
                         }
 
-                        monitor.status_bar_bg = Arc::new(Primitive::Group {
-                            primitives: Vec::new(),
-                        });
-                        monitor.info_output.take();
-                        monitor.output.frame(qh);
-
-                        self.select_block(None, event.surface.id());
+                        if self.shared_data.selected != SelectedBlock::None {
+                            monitor.info_output.take();
+                            self.shared_data.selected = SelectedBlock::None;
+                            self.write_bar(qh);
+                        }
                     }
                     Press { button, .. } => match button {
                         BTN_LEFT => {
@@ -2450,14 +2568,14 @@ impl SimpleLayer {
             monitor
                 .output
                 .layer_surface
-                .set_size(0, self.bar_size.height as u32);
+                .set_size(0, monitor.bar_size.height as u32);
             monitor
                 .output
                 .layer_surface
-                .set_exclusive_zone(self.bar_size.height as i32);
+                .set_exclusive_zone(monitor.bar_size.height as i32);
             monitor.tags.relayout(
                 self.bar_settings.padding_x,
-                self.bar_size.height,
+                monitor.bar_size.height,
                 &self.iced,
                 self.ascii_font_width,
                 self.tag_count,
@@ -2465,7 +2583,7 @@ impl SimpleLayer {
             monitor.tags.relayout_bg(
                 self.bar_settings.color_inactive,
                 self.bar_settings.color_active,
-                self.bar_size.height,
+                monitor.bar_size.height,
             );
             monitor.tags.relayout_windows(
                 self.bar_settings.color_active.0,
@@ -2538,7 +2656,7 @@ impl SimpleLayer {
                                             + (self.bar_settings.padding_x * 2.0)
                                             + (self.ascii_font_width * 3.0),
                                         y: logical_size.height / 2.0,
-                                        width: (logical_size.width - self.bar_size.width)
+                                        width: (logical_size.width - monitor.bar_size.width)
                                             - (monitor.tags.width + (self.ascii_font_width * 3.0)),
                                         height: logical_size.height / 2.0,
                                     },
@@ -2553,9 +2671,6 @@ impl SimpleLayer {
                                     horizontal_alignment: Horizontal::Left,
                                     vertical_alignment: Vertical::Center,
                                     shaping: Shaping::Basic,
-                                },
-                                Primitive::Cache {
-                                    content: Arc::clone(&monitor.status_bar_bg),
                                 },
                                 Primitive::Cache {
                                     content: Arc::clone(&monitor.status_bar_primitives),
@@ -2700,35 +2815,140 @@ impl SimpleLayer {
                 if let Some(ref mut buffers) = output.buffers {
                     let canvas = buffers.canvas(&mut self.pool).unwrap();
                     let mut pixmap = PixmapMut::from_bytes(canvas, width, height).unwrap();
-                    self.iced.draw::<String>(
-                        &mut pixmap,
-                        &mut output.mask,
-                        &[Primitive::Text {
-                            content: "Work in Progress".to_owned(),
-                            bounds: Rectangle {
-                                x: 8.0,
-                                y: 8.0,
+                    match self.shared_data.selected {
+                        SelectedBlock::Playback => {
+                            let playback_block = self.shared_data.playback.as_ref().unwrap();
+
+                            let mut y = self.bar_settings.padding_y;
+                            let bounds = Rectangle {
+                                x: logical_size.width / 2.0,
+                                y,
                                 width: logical_size.width,
                                 height: logical_size.height,
-                            },
-                            color: self.bar_settings.color_active.0,
-                            size: self.iced.default_size(),
-                            line_height: LineHeight::Relative(1.0),
-                            font: self.iced.default_font(),
-                            horizontal_alignment: Horizontal::Left,
-                            vertical_alignment: Vertical::Top,
-                            shaping: Shaping::Basic,
-                        }],
-                        &output.viewport,
-                        &[Rectangle {
-                            x: 0.0,
-                            y: 0.0,
-                            width: width as f32,
-                            height: height as f32,
-                        }],
-                        self.bar_settings.color_active.1,
-                        &[],
-                    );
+                            };
+                            let title = Primitive::Text {
+                                content: playback_block.song_metadata.title.clone(),
+                                bounds,
+                                color: self.bar_settings.color_active.0,
+                                size: self.iced.default_size(),
+                                line_height: LineHeight::Relative(1.0),
+                                font: self.iced.default_font(),
+                                horizontal_alignment: Horizontal::Center,
+                                vertical_alignment: Vertical::Top,
+                                shaping: Shaping::Basic,
+                            };
+                            let measurement = self.iced.measure(
+                                &playback_block.song_metadata.title,
+                                self.iced.default_size(),
+                                LineHeight::Relative(1.0),
+                                self.iced.default_font(),
+                                bounds.size(),
+                                Shaping::Basic,
+                            );
+                            y += measurement.height + self.bar_settings.padding_y;
+                            let bounds = Rectangle {
+                                x: logical_size.width / 2.0,
+                                y,
+                                width: logical_size.width,
+                                height: logical_size.height,
+                            };
+                            let artist = Primitive::Text {
+                                content: playback_block.song_metadata.artist.clone(),
+                                bounds,
+                                color: self.bar_settings.color_active.0,
+                                size: self.iced.default_size() / 1.25,
+                                line_height: LineHeight::Relative(1.0),
+                                font: self.iced.default_font(),
+                                horizontal_alignment: Horizontal::Center,
+                                vertical_alignment: Vertical::Top,
+                                shaping: Shaping::Basic,
+                            };
+                            let measurement = self.iced.measure(
+                                &playback_block.song_metadata.artist,
+                                self.iced.default_size(),
+                                LineHeight::Relative(1.0),
+                                self.iced.default_font(),
+                                bounds.size(),
+                                Shaping::Basic,
+                            );
+                            y += measurement.height + self.bar_settings.padding_y;
+                            let image = if let Some(handle) = playback_block.album_art.clone() {
+                                let width =
+                                    logical_size.width - (self.bar_settings.padding_x * 2.0);
+                                let bounds = Rectangle {
+                                    x: self.bar_settings.padding_x,
+                                    y,
+                                    width,
+                                    height: width,
+                                };
+                                y += width;
+                                Primitive::Image { handle, bounds }
+                            } else {
+                                Primitive::Group {
+                                    primitives: Vec::new(),
+                                }
+                            };
+                            y += self.bar_settings.padding_y * 2.0;
+                            let bounds = Rectangle {
+                                x: logical_size.width / 2.0,
+                                y,
+                                width: logical_size.width,
+                                height: logical_size.height,
+                            };
+                            let album = Primitive::Text {
+                                content: playback_block.song_metadata.album.clone(),
+                                bounds,
+                                color: self.bar_settings.color_active.0,
+                                size: self.iced.default_size(),
+                                line_height: LineHeight::Relative(1.0),
+                                font: self.iced.default_font(),
+                                horizontal_alignment: Horizontal::Center,
+                                vertical_alignment: Vertical::Top,
+                                shaping: Shaping::Basic,
+                            };
+                            let measurement = self.iced.measure(
+                                &playback_block.song_metadata.album,
+                                self.iced.default_size(),
+                                LineHeight::Relative(1.0),
+                                self.iced.default_font(),
+                                bounds.size(),
+                                Shaping::Basic,
+                            );
+                            y += measurement.height + self.bar_settings.padding_y;
+                            let album_artist = Primitive::Text {
+                                content: playback_block.song_metadata.album_artist.clone(),
+                                bounds: Rectangle {
+                                    x: logical_size.width / 2.0,
+                                    y,
+                                    width: logical_size.width,
+                                    height: logical_size.height,
+                                },
+                                color: self.bar_settings.color_active.0,
+                                size: self.iced.default_size() / 1.25,
+                                line_height: LineHeight::Relative(1.0),
+                                font: self.iced.default_font(),
+                                horizontal_alignment: Horizontal::Center,
+                                vertical_alignment: Vertical::Top,
+                                shaping: Shaping::Basic,
+                            };
+
+                            self.iced.draw::<String>(
+                                &mut pixmap,
+                                &mut output.mask,
+                                &[title, artist, image, album, album_artist],
+                                &output.viewport,
+                                &[Rectangle {
+                                    x: 0.0,
+                                    y: 0.0,
+                                    width: width as f32,
+                                    height: height as f32,
+                                }],
+                                self.bar_settings.color_active.1,
+                                &[],
+                            );
+                        }
+                        _ => unimplemented!(),
+                    }
                     // Damage the entire window
                     output.layer_surface.wl_surface().damage_buffer(
                         0,
@@ -2755,92 +2975,92 @@ impl SimpleLayer {
             }
         }
     }
-    pub fn select_block(&mut self, block: Option<usize>, output: ObjectId) {
-        macro_rules! change_text_color {
-            ($b:expr,$color:expr,$primitives:expr) => {
-                match $primitives.get_mut($b) {
-                    Some(Primitive::Text { color, .. }) => {
-                        *color = $color;
-                    }
-                    None => {}
-                    _ => unreachable!(),
-                }
-            };
-        }
-        macro_rules! change_text_content {
-            ($b:expr,$text:expr,$primitives:expr) => {
-                match $primitives.get_mut($b) {
-                    Some(Primitive::Text { content, .. }) => {
-                        *content = $text;
-                    }
-                    None => {}
-                    _ => unreachable!(),
-                }
-            };
-        }
-        if let Some(output) = self.monitors.get_mut(&output) {
-            if let Some(block) = block {
-                match Arc::make_mut(&mut output.status_bar_primitives) {
-                    Primitive::Group { primitives } => {
-                        if let Some(b) = self.shared_data.selected {
-                            change_text_color!(b + 1, self.bar_settings.color_active.0, primitives);
-                            change_text_color!(b, self.bar_settings.color_active.0, primitives);
-                            // change_text_color!(b, self.bar_settings.color_active.0, primitives);
-                            change_text_content!(
-                                b - 1,
-                                self.bar_settings.divider.clone(),
-                                primitives
-                            );
-                            change_text_content!(
-                                b + 1,
-                                self.bar_settings.divider.clone(),
-                                primitives
-                            );
-                            // change_text_color!(b, self.bar_settings.color_active.0, primitives);
-                        }
-                        change_text_color!(block + 1, self.bar_settings.color_active.1, primitives);
-                        change_text_color!(block, self.bar_settings.color_inactive.1, primitives);
-                        // change_text_color!(block, self.bar_settings.color_inactive.1, primitives);
-                        change_text_content!(
-                            block - 1,
-                            self.bar_settings.divider_hard.clone(),
-                            primitives
-                        );
-                        change_text_content!(
-                            block + 1,
-                            self.bar_settings.divider_hard.clone(),
-                            primitives
-                        );
-                        // change_text_color!(block, self.bar_settings.color_inactive.1, primitives);
-                    }
-                    _ => unreachable!(),
-                }
-            } else {
-                match Arc::make_mut(&mut output.status_bar_primitives) {
-                    Primitive::Group { primitives } => {
-                        if let Some(b) = self.shared_data.selected {
-                            change_text_color!(b + 1, self.bar_settings.color_active.0, primitives);
-                            change_text_color!(b, self.bar_settings.color_active.0, primitives);
-                            // change_text_color!(b, self.bar_settings.color_active.0, primitives);
-                            change_text_content!(
-                                b - 1,
-                                self.bar_settings.divider.clone(),
-                                primitives
-                            );
-                            change_text_content!(
-                                b + 1,
-                                self.bar_settings.divider.clone(),
-                                primitives
-                            );
-                            // change_text_color!(b, self.bar_settings.color_active.0, primitives);
-                        }
-                    }
-                    _ => unreachable!(),
-                }
-            }
-        }
-        self.shared_data.selected = block;
-    }
+    // pub fn select_block(&mut self, block: Option<usize>, output: ObjectId) {
+    //     macro_rules! change_text_color {
+    //         ($b:expr,$color:expr,$primitives:expr) => {
+    //             match $primitives.get_mut($b) {
+    //                 Some(Primitive::Text { color, .. }) => {
+    //                     *color = $color;
+    //                 }
+    //                 None => {}
+    //                 _ => unreachable!(),
+    //             }
+    //         };
+    //     }
+    //     macro_rules! change_text_content {
+    //         ($b:expr,$text:expr,$primitives:expr) => {
+    //             match $primitives.get_mut($b) {
+    //                 Some(Primitive::Text { content, .. }) => {
+    //                     *content = $text;
+    //                 }
+    //                 None => {}
+    //                 _ => unreachable!(),
+    //             }
+    //         };
+    //     }
+    //     if let Some(output) = self.monitors.get_mut(&output) {
+    //         if let Some(block) = block {
+    //             match Arc::make_mut(&mut output.status_bar_primitives) {
+    //                 Primitive::Group { primitives } => {
+    //                     if let Some(b) = self.shared_data.selected {
+    //                         change_text_color!(b + 1, self.bar_settings.color_active.0, primitives);
+    //                         change_text_color!(b, self.bar_settings.color_active.0, primitives);
+    //                         // change_text_color!(b, self.bar_settings.color_active.0, primitives);
+    //                         change_text_content!(
+    //                             b - 1,
+    //                             self.bar_settings.divider.clone(),
+    //                             primitives
+    //                         );
+    //                         change_text_content!(
+    //                             b + 1,
+    //                             self.bar_settings.divider.clone(),
+    //                             primitives
+    //                         );
+    //                         // change_text_color!(b, self.bar_settings.color_active.0, primitives);
+    //                     }
+    //                     change_text_color!(block + 1, self.bar_settings.color_active.1, primitives);
+    //                     change_text_color!(block, self.bar_settings.color_inactive.1, primitives);
+    //                     // change_text_color!(block, self.bar_settings.color_inactive.1, primitives);
+    //                     change_text_content!(
+    //                         block - 1,
+    //                         self.bar_settings.divider_hard.clone(),
+    //                         primitives
+    //                     );
+    //                     change_text_content!(
+    //                         block + 1,
+    //                         self.bar_settings.divider_hard.clone(),
+    //                         primitives
+    //                     );
+    //                     // change_text_color!(block, self.bar_settings.color_inactive.1, primitives);
+    //                 }
+    //                 _ => unreachable!(),
+    //             }
+    //         } else {
+    //             match Arc::make_mut(&mut output.status_bar_primitives) {
+    //                 Primitive::Group { primitives } => {
+    //                     if let Some(b) = self.shared_data.selected {
+    //                         change_text_color!(b + 1, self.bar_settings.color_active.0, primitives);
+    //                         change_text_color!(b, self.bar_settings.color_active.0, primitives);
+    //                         // change_text_color!(b, self.bar_settings.color_active.0, primitives);
+    //                         change_text_content!(
+    //                             b - 1,
+    //                             self.bar_settings.divider.clone(),
+    //                             primitives
+    //                         );
+    //                         change_text_content!(
+    //                             b + 1,
+    //                             self.bar_settings.divider.clone(),
+    //                             primitives
+    //                         );
+    //                         // change_text_color!(b, self.bar_settings.color_active.0, primitives);
+    //                     }
+    //                 }
+    //                 _ => unreachable!(),
+    //             }
+    //         }
+    //     }
+    //     self.shared_data.selected = block;
+    // }
 }
 
 delegate_compositor!(SimpleLayer);
@@ -2875,7 +3095,7 @@ impl
                 for monitor in state.monitors.values_mut() {
                     monitor.tags.relayout(
                         state.bar_settings.padding_x,
-                        state.bar_size.height,
+                        monitor.bar_size.height,
                         &state.iced,
                         state.ascii_font_width,
                         state.tag_count,
@@ -3074,7 +3294,7 @@ impl
 
                                 info_layer.set_anchor(Anchor::all());
                                 info_layer.set_size(
-                                    512 + (state.bar_settings.padding_y as u32 * 2),
+                                    512 + (state.bar_settings.padding_x as u32 * 2),
                                     256 + (state.bar_settings.padding_y as u32 * 2),
                                 );
                                 info_layer.set_keyboard_interactivity(KeyboardInteractivity::None);
@@ -3088,7 +3308,7 @@ impl
                                 );
                                 let viewport = Viewport::with_physical_size(
                                     Size {
-                                        width: (512.0 + (state.bar_settings.padding_y as f64 * 2.0)
+                                        width: (512.0 + (state.bar_settings.padding_x as f64 * 2.0)
                                             * monitor.output.viewport.scale_factor()) as u32,
                                         height: (256.0 + (state.bar_settings.padding_y as f64 * 2.0)
                                             * monitor.output.viewport.scale_factor()) as u32,
@@ -3181,16 +3401,16 @@ impl client::Dispatch<WpFractionalScaleV1, GlobalData> for SimpleLayer {
         };
         let new_factor = scale as f32 / 120.0;
         let surface_id = state.fractional_map.get(&proxy.id()).unwrap();
+        let mut monitor = if let Some(monitor) = state.monitors.get_mut(&surface_id) {
+            monitor
+        } else {
+            return;
+        };
         let output = match state.output_type_map.get(&surface_id) {
-            Some(OutputType::Bar) => {
-                if let Some(monitor) = state.monitors.get_mut(&surface_id) {
-                    &mut monitor.output
-                } else {
-                    return;
-                }
-            }
+            Some(OutputType::Bar) => &mut monitor.output,
             Some(OutputType::Info(id)) => {
-                if let Some(monitor) = state.monitors.get_mut(id) {
+                if let Some(m) = state.monitors.get_mut(id) {
+                    monitor = m;
                     if let Some(ref mut output) = monitor.info_output {
                         output
                     } else {
@@ -3230,7 +3450,7 @@ impl client::Dispatch<WpFractionalScaleV1, GlobalData> for SimpleLayer {
         //     .layer_surface
         //     .set_buffer_scale(new_factor as u32)
         //     .unwrap();
-        output.frame(qh);
+        monitor.write_bar(&state.bar_settings, &mut state.shared_data, &state.iced, qh);
     }
 }
 
@@ -3291,7 +3511,7 @@ impl
                                             *color = state.bar_settings.color_inactive.0;
                                         }
                                     }
-                                    _ => unreachable!(),
+                                    _ => {}
                                 }
                             }
                         }
@@ -3306,20 +3526,20 @@ impl
                 num_clients,
                 focused_client,
             } => {
-                if let Some(output) = state
+                if let Some(monitor) = state
                     .znet_map
                     .get(&proxy.id())
                     .and_then(|id| state.monitors.get_mut(id))
                 {
                     if let Ok(tag_state) = tag_state.into_result() {
-                        output.tags.tag_event(
+                        monitor.tags.tag_event(
                             tag,
                             tag_state,
                             num_clients,
                             focused_client,
                             state.bar_settings.color_inactive,
                             state.bar_settings.color_active,
-                            state.bar_size.height,
+                            monitor.bar_size.height,
                             state.bar_settings.padding_x,
                         );
                     }
