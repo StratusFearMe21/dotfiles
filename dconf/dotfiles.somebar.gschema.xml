@@ -8,6 +8,13 @@
           The font that the status bar will use. Should be monospace and a Nerd font
         </description>
       </key>
+      <key name="font-fallback" type="s">
+        <default>"Noto Sans CJK JP"</default>
+        <summary>Status bar font fallback</summary>
+        <description>
+          The font that the status bar will use when drawing CJK characters. Does not include the size
+        </description>
+      </key>
       <key name="time-block" type="b">
         <default>true</default>
         <summary>Show the current system time and date in the status bar</summary>

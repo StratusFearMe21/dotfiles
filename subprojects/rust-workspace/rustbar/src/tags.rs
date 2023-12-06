@@ -4,7 +4,7 @@ use iced_tiny_skia::{
     core::{
         alignment::{Horizontal, Vertical},
         text::{LineHeight, Shaping},
-        Background, Color, Rectangle,
+        Background, Color, Font, Rectangle,
     },
     graphics::backend::Text,
     /* Custom ,*/ Primitive,
@@ -64,6 +64,7 @@ impl Tags {
         padding_x: f32,
         height: f32,
         backend: &iced_tiny_skia::Backend,
+        font: Font,
         ascii_num_width: f32,
         tag_count: usize,
     ) {
@@ -83,7 +84,7 @@ impl Tags {
                 color: Color::BLACK,
                 size: backend.default_size(),
                 line_height: LineHeight::Relative(1.0),
-                font: backend.default_font(),
+                font,
                 horizontal_alignment: Horizontal::Left,
                 vertical_alignment: Vertical::Center,
                 shaping: Shaping::Basic,
@@ -227,6 +228,7 @@ impl Tags {
         height: f32,
         ascii_num_width: f32,
         backend: &iced_tiny_skia::Backend,
+        font: Font,
     ) -> Self {
         let mut tags = Self {
             tags_background: Arc::new(Primitive::Group {
@@ -243,7 +245,7 @@ impl Tags {
             width: 0.0,
         };
 
-        tags.relayout(padding_x, height, backend, ascii_num_width, tag_count);
+        tags.relayout(padding_x, height, backend, font, ascii_num_width, tag_count);
 
         tags
     }

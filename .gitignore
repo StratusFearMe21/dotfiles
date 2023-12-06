@@ -3,6 +3,7 @@ node_modules/
 dotfiles-*.pkg.tar.zst
 # subprojects/libliftoff/
 # subprojects/wlroots/
+compile_commands.json
 target/
 pkg/
 src/

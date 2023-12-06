@@ -341,13 +341,26 @@ impl SharedData {
                                     shared_data.iced =
                                         iced_tiny_skia::Backend::new(iced_tiny_skia::Settings {
                                             default_text_size: font_size,
-                                            default_font: Font {
-                                                monospaced: true,
-                                                family: Family::Name(std::mem::transmute(font)),
-                                                ..Default::default()
-                                            },
+                                            default_font: shared_data.iced.default_font(),
                                         });
-                                    shared_data.bar_settings.default_font = new_font;
+                                    shared_data.monitors.iter_mut().for_each(|(_, m)| {
+                                        m.info_iced = iced_tiny_skia::Backend::new(
+                                            iced_tiny_skia::Settings {
+                                                default_text_size: font_size,
+                                                default_font: shared_data.iced.default_font(),
+                                            },
+                                        );
+                                        if let Some(ref mut i) = m.info_output {
+                                            i.frame(qh.as_ref());
+                                        }
+                                    });
+                                    shared_data.bar_settings.default_font = Font {
+                                        monospaced: true,
+                                        family: Family::Name(std::mem::transmute(font)),
+                                        ..Default::default()
+                                    };
+
+                                    shared_data.bar_settings.default_font_name = new_font;
                                     let mut tmp = [0; 4];
                                     shared_data.ascii_font_width = shared_data
                                         .iced
@@ -355,7 +368,7 @@ impl SharedData {
                                             shared_data.bar_settings.divider.encode_utf8(&mut tmp),
                                             shared_data.iced.default_size(),
                                             LineHeight::Relative(1.0),
-                                            shared_data.iced.default_font(),
+                                            shared_data.bar_settings.default_font,
                                             Size {
                                                 width: f32::INFINITY,
                                                 height: f32::INFINITY,
@@ -364,6 +377,44 @@ impl SharedData {
                                         )
                                         .width;
 
+                                    shared_data.relayout(Rc::clone(&qh));
+                                }
+                                Some(NodeKind::FontFallback) => {
+                                    let new_font: String = dconf_read_variant(
+                                        shared_data.dconf,
+                                        "/dotfiles/somebar/font-fallback",
+                                    )
+                                    .unwrap_or(String::from("Noto Sans CJK JP"));
+
+                                    shared_data.iced =
+                                        iced_tiny_skia::Backend::new(iced_tiny_skia::Settings {
+                                            default_text_size: shared_data.iced.default_size(),
+                                            default_font: Font {
+                                                monospaced: true,
+                                                family: Family::Name(std::mem::transmute(
+                                                    new_font.as_str(),
+                                                )),
+                                                ..Default::default()
+                                            },
+                                        });
+                                    shared_data.monitors.iter_mut().for_each(|(_, m)| {
+                                        m.info_iced = iced_tiny_skia::Backend::new(
+                                            iced_tiny_skia::Settings {
+                                                default_text_size: shared_data.iced.default_size(),
+                                                default_font: Font {
+                                                    monospaced: true,
+                                                    family: Family::Name(std::mem::transmute(
+                                                        new_font.as_str(),
+                                                    )),
+                                                    ..Default::default()
+                                                },
+                                            },
+                                        );
+                                        if let Some(ref mut i) = m.info_output {
+                                            i.frame(qh.as_ref());
+                                        }
+                                    });
+                                    shared_data.bar_settings.default_font_fallback_name = new_font;
                                     shared_data.relayout(Rc::clone(&qh));
                                 }
                                 Some(NodeKind::TimeBlock) => {
@@ -746,6 +797,7 @@ impl SharedData {
         &mut self,
         colors: (Color, (Color, Color)),
         backend: &iced_tiny_skia::Backend,
+        font: Font,
         logical_size: Size<f32>,
         padding_x: f32,
         padding_y: f32,
@@ -819,7 +871,7 @@ impl SharedData {
             divider,
             backend.default_size() + padding_y,
             LineHeight::Relative(1.0),
-            backend.default_font(),
+            font,
             Size::INFINITY,
             Shaping::Basic,
         );
@@ -839,9 +891,9 @@ impl SharedData {
                     &content,
                     backend.default_size(),
                     LineHeight::Relative(1.0),
-                    backend.default_font(),
+                    font,
                     Size::INFINITY,
-                    Shaping::Basic,
+                    Shaping::Advanced,
                 )
                 .width;
             x -= measurement;
@@ -856,10 +908,10 @@ impl SharedData {
                 color: select_color!(selected),
                 size: backend.default_size(),
                 line_height: LineHeight::Relative(1.0),
-                font: backend.default_font(),
+                font,
                 horizontal_alignment: Horizontal::Left,
                 vertical_alignment: Vertical::Center,
-                shaping: Shaping::Basic,
+                shaping: Shaping::Advanced,
             });
             x -= divider_measurement.width;
             primitives.push(Primitive::Text {
@@ -873,10 +925,10 @@ impl SharedData {
                 color: select_divider_color!(selected),
                 size: backend.default_size() + padding_y * 2.0,
                 line_height: LineHeight::Relative(1.0),
-                font: backend.default_font(),
+                font,
                 horizontal_alignment: Horizontal::Left,
                 vertical_alignment: Vertical::Center,
-                shaping: Shaping::Basic,
+                shaping: Shaping::Advanced,
             });
             media.x_at = x;
             media.width = measurement + divider_measurement.width + padding_x;
@@ -899,7 +951,7 @@ impl SharedData {
                     &content,
                     backend.default_size(),
                     LineHeight::Relative(1.0),
-                    backend.default_font(),
+                    font,
                     Size::INFINITY,
                     Shaping::Basic,
                 )
@@ -916,7 +968,7 @@ impl SharedData {
                 color: select_color!(selected),
                 size: backend.default_size(),
                 line_height: LineHeight::Relative(1.0),
-                font: backend.default_font(),
+                font,
                 horizontal_alignment: Horizontal::Left,
                 vertical_alignment: Vertical::Center,
                 shaping: Shaping::Basic,
@@ -933,7 +985,7 @@ impl SharedData {
                 color: select_divider_color!(selected),
                 size: backend.default_size() + padding_y * 2.0,
                 line_height: LineHeight::Relative(1.0),
-                font: backend.default_font(),
+                font,
                 horizontal_alignment: Horizontal::Left,
                 vertical_alignment: Vertical::Center,
                 shaping: Shaping::Basic,
@@ -971,7 +1023,7 @@ impl SharedData {
                         &content,
                         backend.default_size(),
                         LineHeight::Relative(1.0),
-                        backend.default_font(),
+                        font,
                         Size::INFINITY,
                         Shaping::Basic,
                     )
@@ -989,7 +1041,7 @@ impl SharedData {
                     color: select_color!(selected),
                     size: backend.default_size(),
                     line_height: LineHeight::Relative(1.0),
-                    font: backend.default_font(),
+                    font,
                     horizontal_alignment: Horizontal::Left,
                     vertical_alignment: Vertical::Center,
                     shaping: Shaping::Basic,
@@ -1006,7 +1058,7 @@ impl SharedData {
                     color: select_divider_color!(selected),
                     size: backend.default_size() + padding_y * 2.0,
                     line_height: LineHeight::Relative(1.0),
-                    font: backend.default_font(),
+                    font,
                     horizontal_alignment: Horizontal::Left,
                     vertical_alignment: Vertical::Center,
                     shaping: Shaping::Basic,
@@ -1035,7 +1087,7 @@ impl SharedData {
                     &content,
                     backend.default_size(),
                     LineHeight::Relative(1.0),
-                    backend.default_font(),
+                    font,
                     Size::INFINITY,
                     Shaping::Basic,
                 )
@@ -1052,7 +1104,7 @@ impl SharedData {
                 color: select_color!(selected),
                 size: backend.default_size(),
                 line_height: LineHeight::Relative(1.0),
-                font: backend.default_font(),
+                font,
                 horizontal_alignment: Horizontal::Left,
                 vertical_alignment: Vertical::Center,
                 shaping: Shaping::Basic,
@@ -1069,7 +1121,7 @@ impl SharedData {
                 color: select_divider_color!(selected),
                 size: backend.default_size() + padding_y * 2.0,
                 line_height: LineHeight::Relative(1.0),
-                font: backend.default_font(),
+                font,
                 horizontal_alignment: Horizontal::Left,
                 vertical_alignment: Vertical::Center,
                 shaping: Shaping::Basic,
@@ -1099,7 +1151,7 @@ impl SharedData {
                     &content,
                     backend.default_size(),
                     LineHeight::Relative(1.0),
-                    backend.default_font(),
+                    font,
                     Size::INFINITY,
                     Shaping::Basic,
                 );
@@ -1117,7 +1169,7 @@ impl SharedData {
                     color: select_color!(selected),
                     size: backend.default_size(),
                     line_height: LineHeight::Relative(1.0),
-                    font: backend.default_font(),
+                    font,
                     horizontal_alignment: Horizontal::Left,
                     vertical_alignment: Vertical::Center,
                     shaping: Shaping::Basic,
@@ -1134,7 +1186,7 @@ impl SharedData {
                     color: select_divider_color!(selected),
                     size: backend.default_size() + padding_y * 2.0,
                     line_height: LineHeight::Relative(1.0),
-                    font: backend.default_font(),
+                    font,
                     horizontal_alignment: Horizontal::Left,
                     vertical_alignment: Vertical::Center,
                     shaping: Shaping::Basic,
@@ -1161,7 +1213,7 @@ impl SharedData {
                     &content,
                     backend.default_size(),
                     LineHeight::Relative(1.0),
-                    backend.default_font(),
+                    font,
                     Size::INFINITY,
                     Shaping::Basic,
                 );
@@ -1178,7 +1230,7 @@ impl SharedData {
                     color: select_color!(selected),
                     size: backend.default_size(),
                     line_height: LineHeight::Relative(1.0),
-                    font: backend.default_font(),
+                    font,
                     horizontal_alignment: Horizontal::Left,
                     vertical_alignment: Vertical::Center,
                     shaping: Shaping::Basic,
@@ -1297,6 +1349,9 @@ fn main() {
 
     let new_font: String = dconf_read_variant(dconf, "/dotfiles/somebar/font")
         .unwrap_or(String::from("FiraCode Nerd Font 14"));
+    let new_font_fallback: String = dconf_read_variant(dconf, "/dotfiles/somebar/font-fallback")
+        .unwrap_or(String::from("Noto Sans CJK JP"));
+
     let divider = dconf_read_variant::<String>(dconf, "/dotfiles/somebar/divider")
         .and_then(|d| d.chars().next())
         .unwrap_or('');
@@ -1306,11 +1361,17 @@ fn main() {
     let font = split.0;
     let font_size: f32 = split.1.parse().unwrap();
 
+    let default_font = Font {
+        monospaced: true,
+        family: Family::Name(unsafe { std::mem::transmute(font) }),
+        ..Default::default()
+    };
+
     let backend = iced_tiny_skia::Backend::new(iced_tiny_skia::Settings {
         default_text_size: font_size,
         default_font: Font {
             monospaced: true,
-            family: Family::Name(unsafe { std::mem::transmute(font) }),
+            family: Family::Name(unsafe { std::mem::transmute(new_font_fallback.as_str()) }),
             ..Default::default()
         },
     });
@@ -1320,7 +1381,7 @@ fn main() {
         divider.encode_utf8(&mut tmp),
         backend.default_size(),
         LineHeight::Relative(1.0),
-        backend.default_font(),
+        default_font,
         Size {
             width: f32::INFINITY,
             height: f32::INFINITY,
@@ -1328,7 +1389,7 @@ fn main() {
         Shaping::Basic,
     );
 
-    let bar_settings = BarSettings::new(new_font, dconf, divider);
+    let bar_settings = BarSettings::new(new_font_fallback, new_font, default_font, dconf, divider);
 
     let bar_size = Size {
         width: 0.0,
@@ -1415,6 +1476,7 @@ pub struct Output {
 pub struct Monitor {
     output: Output,
     info_output: Option<Output>,
+    info_iced: iced_tiny_skia::Backend,
     wl_output: wl_output::WlOutput,
     is_in_overlay: bool,
     dwl: ZnetTapesoftwareDwlWmMonitorV1,
@@ -1448,6 +1510,7 @@ impl Monitor {
                 )
             },
             iced,
+            bar_settings.default_font,
             self.output.viewport.logical_size(),
             bar_settings.padding_x,
             bar_settings.padding_y,
@@ -1481,7 +1544,9 @@ impl Output {
 pub struct BarSettings {
     color_active: (Color, Color),
     color_inactive: (Color, Color),
-    default_font: String,
+    default_font_fallback_name: String,
+    default_font_name: String,
+    default_font: Font,
     padding_x: f32,
     padding_y: f32,
     bar_show_time: u64,
@@ -1522,7 +1587,13 @@ fn parse_color(
 }
 
 impl BarSettings {
-    fn new(default_font: String, dconf: *mut DConfClient, divider: char) -> BarSettings {
+    fn new(
+        default_font_fallback_name: String,
+        default_font_name: String,
+        default_font: Font,
+        dconf: *mut DConfClient,
+        divider: char,
+    ) -> BarSettings {
         let mut color_active: [palette::Srgba; 2] = [
             palette::Srgba::from_components((1.0, 0.56, 0.25, 1.0)),
             palette::Srgba::from_components((0.2, 0.227, 0.25, 1.0)),
@@ -1570,7 +1641,9 @@ impl BarSettings {
                     color_inactive[1].alpha,
                 ),
             ),
+            default_font_fallback_name,
             default_font,
+            default_font_name,
             padding_x: dconf_read_variant::<f64>(dconf, "/dotfiles/somebar/padding-x")
                 .unwrap_or(10.0) as f32,
             padding_y: dconf_read_variant::<f64>(dconf, "/dotfiles/somebar/padding-y")
@@ -1719,7 +1792,7 @@ impl SimpleLayer {
                     bar_settings.divider.encode_utf8(&mut tmp),
                     iced.default_size(),
                     LineHeight::Relative(1.0),
-                    iced.default_font(),
+                    bar_settings.default_font,
                     Size {
                         width: f32::INFINITY,
                         height: f32::INFINITY,
@@ -1783,7 +1856,7 @@ impl SimpleLayer {
                         &input_string,
                         self.iced.default_size(),
                         LineHeight::Relative(1.0),
-                        self.iced.default_font(),
+                        self.bar_settings.default_font,
                         Size {
                             width: f32::INFINITY,
                             height: f32::INFINITY,
@@ -1816,7 +1889,7 @@ impl SimpleLayer {
                     color: self.bar_settings.color_active.0,
                     size: self.iced.default_size(),
                     line_height: LineHeight::Relative(1.0),
-                    font: self.iced.default_font(),
+                    font: self.bar_settings.default_font,
                     horizontal_alignment: Horizontal::Left,
                     vertical_alignment: Vertical::Center,
                     shaping: Shaping::Basic,
@@ -1852,7 +1925,7 @@ impl SimpleLayer {
                             &item.name,
                             self.iced.default_size(),
                             LineHeight::Relative(1.0),
-                            self.iced.default_font(),
+                            self.bar_settings.default_font,
                             Size {
                                 width: f32::INFINITY,
                                 height: f32::INFINITY,
@@ -1890,7 +1963,7 @@ impl SimpleLayer {
                         },
                         size: self.iced.default_size(),
                         line_height: LineHeight::Relative(1.0),
-                        font: self.iced.default_font(),
+                        font: self.bar_settings.default_font,
                         horizontal_alignment: Horizontal::Left,
                         vertical_alignment: Vertical::Center,
                         shaping: Shaping::Basic,
@@ -1978,6 +2051,7 @@ impl OutputHandler for SimpleLayer {
                 ),
             ),
             &self.iced,
+            self.bar_settings.default_font,
             viewport.logical_size(),
             self.bar_settings.padding_x,
             self.bar_settings.padding_y,
@@ -2041,11 +2115,16 @@ impl OutputHandler for SimpleLayer {
                 bar_size.height,
                 self.ascii_font_width,
                 &self.iced,
+                self.bar_settings.default_font,
             ),
             is_in_overlay: false,
             bar_state: BarState::Normal,
             status_bar_primitives: Arc::new(Primitive::Group {
                 primitives: Vec::new(),
+            }),
+            info_iced: iced_tiny_skia::Backend::new(iced_tiny_skia::Settings {
+                default_font: self.iced.default_font(),
+                default_text_size: self.iced.default_size(),
             }),
             bar_size,
         };
@@ -2577,6 +2656,7 @@ impl SimpleLayer {
                 self.bar_settings.padding_x,
                 monitor.bar_size.height,
                 &self.iced,
+                self.bar_settings.default_font,
                 self.ascii_font_width,
                 self.tag_count,
             );
@@ -2644,7 +2724,7 @@ impl SimpleLayer {
                                     },
                                     size: self.iced.default_size(),
                                     line_height: LineHeight::Relative(1.0),
-                                    font: self.iced.default_font(),
+                                    font: self.bar_settings.default_font,
                                     horizontal_alignment: Horizontal::Left,
                                     vertical_alignment: Vertical::Center,
                                     shaping: Shaping::Basic,
@@ -2667,10 +2747,10 @@ impl SimpleLayer {
                                     },
                                     size: self.iced.default_size(),
                                     line_height: LineHeight::Relative(1.0),
-                                    font: self.iced.default_font(),
+                                    font: self.bar_settings.default_font,
                                     horizontal_alignment: Horizontal::Left,
                                     vertical_alignment: Vertical::Center,
-                                    shaping: Shaping::Basic,
+                                    shaping: Shaping::Advanced,
                                 },
                                 Primitive::Cache {
                                     content: Arc::clone(&monitor.status_bar_primitives),
@@ -2744,7 +2824,7 @@ impl SimpleLayer {
                                     },
                                     size: self.iced.default_size(),
                                     line_height: LineHeight::Relative(1.0),
-                                    font: self.iced.default_font(),
+                                    font: self.bar_settings.default_font,
                                     horizontal_alignment: Horizontal::Center,
                                     vertical_alignment: Vertical::Center,
                                     shaping: Shaping::Basic,
@@ -2830,20 +2910,20 @@ impl SimpleLayer {
                                 content: playback_block.song_metadata.title.clone(),
                                 bounds,
                                 color: self.bar_settings.color_active.0,
-                                size: self.iced.default_size(),
+                                size: monitor.info_iced.default_size(),
                                 line_height: LineHeight::Relative(1.0),
-                                font: self.iced.default_font(),
+                                font: self.bar_settings.default_font,
                                 horizontal_alignment: Horizontal::Center,
                                 vertical_alignment: Vertical::Top,
-                                shaping: Shaping::Basic,
+                                shaping: Shaping::Advanced,
                             };
-                            let measurement = self.iced.measure(
+                            let measurement = monitor.info_iced.measure(
                                 &playback_block.song_metadata.title,
-                                self.iced.default_size(),
+                                monitor.info_iced.default_size(),
                                 LineHeight::Relative(1.0),
-                                self.iced.default_font(),
+                                self.bar_settings.default_font,
                                 bounds.size(),
-                                Shaping::Basic,
+                                Shaping::Advanced,
                             );
                             y += measurement.height + self.bar_settings.padding_y;
                             let bounds = Rectangle {
@@ -2856,20 +2936,20 @@ impl SimpleLayer {
                                 content: playback_block.song_metadata.artist.clone(),
                                 bounds,
                                 color: self.bar_settings.color_active.0,
-                                size: self.iced.default_size() / 1.25,
+                                size: monitor.info_iced.default_size() / 1.25,
                                 line_height: LineHeight::Relative(1.0),
-                                font: self.iced.default_font(),
+                                font: self.bar_settings.default_font,
                                 horizontal_alignment: Horizontal::Center,
                                 vertical_alignment: Vertical::Top,
-                                shaping: Shaping::Basic,
+                                shaping: Shaping::Advanced,
                             };
-                            let measurement = self.iced.measure(
+                            let measurement = monitor.info_iced.measure(
                                 &playback_block.song_metadata.artist,
-                                self.iced.default_size(),
+                                monitor.info_iced.default_size(),
                                 LineHeight::Relative(1.0),
-                                self.iced.default_font(),
+                                self.bar_settings.default_font,
                                 bounds.size(),
-                                Shaping::Basic,
+                                Shaping::Advanced,
                             );
                             y += measurement.height + self.bar_settings.padding_y;
                             let image = if let Some(handle) = playback_block.album_art.clone() {
@@ -2899,20 +2979,20 @@ impl SimpleLayer {
                                 content: playback_block.song_metadata.album.clone(),
                                 bounds,
                                 color: self.bar_settings.color_active.0,
-                                size: self.iced.default_size(),
+                                size: monitor.info_iced.default_size(),
                                 line_height: LineHeight::Relative(1.0),
-                                font: self.iced.default_font(),
+                                font: self.bar_settings.default_font,
                                 horizontal_alignment: Horizontal::Center,
                                 vertical_alignment: Vertical::Top,
-                                shaping: Shaping::Basic,
+                                shaping: Shaping::Advanced,
                             };
-                            let measurement = self.iced.measure(
+                            let measurement = monitor.info_iced.measure(
                                 &playback_block.song_metadata.album,
-                                self.iced.default_size(),
+                                monitor.info_iced.default_size(),
                                 LineHeight::Relative(1.0),
-                                self.iced.default_font(),
+                                self.bar_settings.default_font,
                                 bounds.size(),
-                                Shaping::Basic,
+                                Shaping::Advanced,
                             );
                             y += measurement.height + self.bar_settings.padding_y;
                             let album_artist = Primitive::Text {
@@ -2924,15 +3004,15 @@ impl SimpleLayer {
                                     height: logical_size.height,
                                 },
                                 color: self.bar_settings.color_active.0,
-                                size: self.iced.default_size() / 1.25,
+                                size: monitor.info_iced.default_size() / 1.25,
                                 line_height: LineHeight::Relative(1.0),
-                                font: self.iced.default_font(),
+                                font: self.bar_settings.default_font,
                                 horizontal_alignment: Horizontal::Center,
                                 vertical_alignment: Vertical::Top,
-                                shaping: Shaping::Basic,
+                                shaping: Shaping::Advanced,
                             };
 
-                            self.iced.draw::<String>(
+                            monitor.info_iced.draw::<String>(
                                 &mut pixmap,
                                 &mut output.mask,
                                 &[title, artist, image, album, album_artist],
@@ -3097,6 +3177,7 @@ impl
                         state.bar_settings.padding_x,
                         monitor.bar_size.height,
                         &state.iced,
+                        state.bar_settings.default_font,
                         state.ascii_font_width,
                         state.tag_count,
                     );

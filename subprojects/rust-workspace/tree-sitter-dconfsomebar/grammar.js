@@ -7,6 +7,7 @@ module.exports = grammar({
     // TODO: add the actual grammar rules
     source_file: $ => choice(
       $.font,
+      $.font_fallback,
       $.time_block,
       $.date_fmt,
       $.browser_path,
@@ -27,6 +28,7 @@ module.exports = grammar({
       $.divider,
     ),
     font: _ => "/dotfiles/somebar/font", 
+    font_fallback: _ => "/dotfiles/somebar/font-fallback", 
     time_block: _ => "/dotfiles/somebar/time-block", 
     date_fmt: _ => "/dotfiles/somebar/date-fmt", 
     browser_path: _ => "/dotfiles/somebar/browser-path", 

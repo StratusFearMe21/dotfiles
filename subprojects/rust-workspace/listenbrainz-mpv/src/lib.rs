@@ -218,9 +218,9 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
     mpv.event_context()
         .observe_property("speed", libmpv::Format::Double, 0)
         .unwrap();
-    let this_thread = std::thread::current();
+    let (tx, rx) = flume::unbounded();
     mpv.event_context_mut()
-        .set_wakeup_callback(move || this_thread.unpark());
+        .set_wakeup_callback(move || tx.send(()).unwrap());
 
     let mut data = ListenbrainzData::default();
 
@@ -262,27 +262,15 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
     import_cache(&data.token, &data.cache_path);
 
     'mainloop: loop {
-        if data.timeout {
-            if Instant::now() >= data.scrobble_deadline {
-                std::thread::park();
+        let result: Result<(), flume::RecvTimeoutError> =
+            if data.timeout && Instant::now() < data.scrobble_deadline {
+                rx.recv_deadline(data.scrobble_deadline)
             } else {
-                std::thread::park_timeout(data.scrobble_deadline.duration_since(Instant::now()));
-            }
-        } else {
-            std::thread::park();
-        }
+                rx.recv().map_err(|e| e.into())
+            };
 
-        if data.scrobble && Instant::now() >= data.scrobble_deadline {
-            data.payload.listened_at = NonZeroU64::new(
-                SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-            );
-            scrobble("single", &data.payload, &data.token, &data.cache_path);
-            data.scrobble = false;
-        } else {
-            loop {
+        match result {
+            Ok(()) => loop {
                 match mpv.event_context_mut().wait_event(0.0) {
                     Some(Ok(Event::Shutdown)) => break 'mainloop,
                     Some(Ok(Event::ClientMessage(m))) => {
@@ -510,7 +498,18 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
                     None => break,
                     _ => {}
                 }
+            },
+            Err(flume::RecvTimeoutError::Timeout) => {
+                data.payload.listened_at = NonZeroU64::new(
+                    SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                );
+                scrobble("single", &data.payload, &data.token, &data.cache_path);
+                data.scrobble = false;
             }
+            e @ Err(_) => e.unwrap(),
         }
     }
 

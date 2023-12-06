@@ -192,6 +192,7 @@ impl PlaybackBlock {
 
             if self.playing == PlaybackStatus::Stopped {
                 self.song_metadata = Default::default();
+                self.album_art = None;
             }
         }
         changed

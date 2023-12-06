@@ -9,6 +9,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
+flume = { version = "0.11.0", default-features = false }
 id3 = "1.6.0"
 libmpv = { git = "https://github.com/StratusFearMe21/libmpv-rs", version = "2.0.1", default-features = false }
 libmpv-sys = { git = "https://github.com/StratusFearMe21/libmpv-rs", version = "3.1.0", default-features = false }
