@@ -5,5 +5,5 @@ dotfiles-*.pkg.tar.zst
 # subprojects/wlroots/
 compile_commands.json
 target/
-pkg/
-src/
+./pkg/
+./src/

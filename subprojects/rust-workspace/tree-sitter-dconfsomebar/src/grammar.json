@@ -1,0 +1,177 @@
+{
+  "name": "dconfsomebar",
+  "rules": {
+    "source_file": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "font"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "font_fallback"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "time_block"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "date_fmt"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "browser_path"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "browser"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "time_fmt"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "update_time_ntp"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "brightness_block"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "battery_block"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "connman_block"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "media_block"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "color_active"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "color_inactive"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "padding_x"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "padding_y"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "top_bar"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "time_servers"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "bar_show_time"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "divider"
+        }
+      ]
+    },
+    "font": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/font"
+    },
+    "font_fallback": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/font-fallback"
+    },
+    "time_block": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/time-block"
+    },
+    "date_fmt": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/date-fmt"
+    },
+    "browser_path": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/browser-path"
+    },
+    "browser": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/browser"
+    },
+    "time_fmt": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/time-fmt"
+    },
+    "update_time_ntp": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/update-time-ntp"
+    },
+    "brightness_block": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/brightness-block"
+    },
+    "battery_block": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/battery-block"
+    },
+    "connman_block": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/connman-block"
+    },
+    "media_block": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/media-block"
+    },
+    "color_active": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/color-active"
+    },
+    "color_inactive": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/color-inactive"
+    },
+    "padding_x": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/padding-x"
+    },
+    "padding_y": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/padding-y"
+    },
+    "top_bar": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/top-bar"
+    },
+    "time_servers": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/time-servers"
+    },
+    "bar_show_time": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/bar-show-time"
+    },
+    "divider": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/divider"
+    }
+  },
+  "extras": [],
+  "conflicts": [],
+  "precedences": [],
+  "externals": [],
+  "inline": [],
+  "supertypes": []
+}
+

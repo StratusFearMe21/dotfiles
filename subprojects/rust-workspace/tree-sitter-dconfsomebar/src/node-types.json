@@ -1,0 +1,173 @@
+[
+  {
+    "type": "source_file",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "bar_show_time",
+          "named": true
+        },
+        {
+          "type": "battery_block",
+          "named": true
+        },
+        {
+          "type": "brightness_block",
+          "named": true
+        },
+        {
+          "type": "browser",
+          "named": true
+        },
+        {
+          "type": "browser_path",
+          "named": true
+        },
+        {
+          "type": "color_active",
+          "named": true
+        },
+        {
+          "type": "color_inactive",
+          "named": true
+        },
+        {
+          "type": "connman_block",
+          "named": true
+        },
+        {
+          "type": "date_fmt",
+          "named": true
+        },
+        {
+          "type": "divider",
+          "named": true
+        },
+        {
+          "type": "font",
+          "named": true
+        },
+        {
+          "type": "font_fallback",
+          "named": true
+        },
+        {
+          "type": "media_block",
+          "named": true
+        },
+        {
+          "type": "padding_x",
+          "named": true
+        },
+        {
+          "type": "padding_y",
+          "named": true
+        },
+        {
+          "type": "time_block",
+          "named": true
+        },
+        {
+          "type": "time_fmt",
+          "named": true
+        },
+        {
+          "type": "time_servers",
+          "named": true
+        },
+        {
+          "type": "top_bar",
+          "named": true
+        },
+        {
+          "type": "update_time_ntp",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "bar_show_time",
+    "named": true
+  },
+  {
+    "type": "battery_block",
+    "named": true
+  },
+  {
+    "type": "brightness_block",
+    "named": true
+  },
+  {
+    "type": "browser",
+    "named": true
+  },
+  {
+    "type": "browser_path",
+    "named": true
+  },
+  {
+    "type": "color_active",
+    "named": true
+  },
+  {
+    "type": "color_inactive",
+    "named": true
+  },
+  {
+    "type": "connman_block",
+    "named": true
+  },
+  {
+    "type": "date_fmt",
+    "named": true
+  },
+  {
+    "type": "divider",
+    "named": true
+  },
+  {
+    "type": "font",
+    "named": true
+  },
+  {
+    "type": "font_fallback",
+    "named": true
+  },
+  {
+    "type": "media_block",
+    "named": true
+  },
+  {
+    "type": "padding_x",
+    "named": true
+  },
+  {
+    "type": "padding_y",
+    "named": true
+  },
+  {
+    "type": "time_block",
+    "named": true
+  },
+  {
+    "type": "time_fmt",
+    "named": true
+  },
+  {
+    "type": "time_servers",
+    "named": true
+  },
+  {
+    "type": "top_bar",
+    "named": true
+  },
+  {
+    "type": "update_time_ntp",
+    "named": true
+  }
+]

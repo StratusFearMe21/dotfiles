@@ -1,0 +1,225 @@
+{
+  "name": "dconfdwl",
+  "rules": {
+    "source_file": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "accel_profile"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "accel_speed"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "border_color"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "border_px"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "button_map"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "bypass_surface_visibility"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "click_method"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "disable_trackpad_while_typing"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "drag_lock"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "focus_color"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "fullscreen_bg"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "left_handed"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "log_level"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "middle_button_emulation"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "modkey"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "mouse_follows_focus"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "natural_scrolling"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "repeat_delay"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "repeat_rate"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "scroll_method"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "send_events_mode"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "sloppy_focus"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "tag_count"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "tap_to_click"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "tap_to_drag"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "xkb_options"
+        }
+      ]
+    },
+    "accel_profile": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/accel-profile"
+    },
+    "accel_speed": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/accel-speed"
+    },
+    "border_color": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/border-color"
+    },
+    "border_px": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/border-px"
+    },
+    "button_map": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/button-map"
+    },
+    "bypass_surface_visibility": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/bypass-surface-visibility"
+    },
+    "click_method": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/click-method"
+    },
+    "disable_trackpad_while_typing": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/disable-trackpad-while-typing"
+    },
+    "drag_lock": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/drag-lock"
+    },
+    "focus_color": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/focus-color"
+    },
+    "fullscreen_bg": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/fullscreen-bg"
+    },
+    "left_handed": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/left-handed"
+    },
+    "log_level": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/log-level"
+    },
+    "middle_button_emulation": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/middle-button-emulation"
+    },
+    "modkey": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/modkey"
+    },
+    "mouse_follows_focus": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/mouse-follows-focus"
+    },
+    "natural_scrolling": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/natural-scrolling"
+    },
+    "repeat_delay": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/repeat-delay"
+    },
+    "repeat_rate": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/repeat-rate"
+    },
+    "scroll_method": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/scroll-method"
+    },
+    "send_events_mode": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/send-events-mode"
+    },
+    "sloppy_focus": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/sloppy-focus"
+    },
+    "tag_count": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/tag-count"
+    },
+    "tap_to_click": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/tap-to-click"
+    },
+    "tap_to_drag": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/tap-to-drag"
+    },
+    "xkb_options": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/xkb-options"
+    }
+  },
+  "extras": [],
+  "conflicts": [],
+  "precedences": [],
+  "externals": [],
+  "inline": [],
+  "supertypes": []
+}
+
