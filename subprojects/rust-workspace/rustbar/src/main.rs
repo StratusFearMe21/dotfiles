@@ -384,7 +384,7 @@ impl SharedData {
                                         shared_data.dconf,
                                         "/dotfiles/somebar/font-fallback",
                                     )
-                                    .unwrap_or(String::from("Noto Sans CJK JP"));
+                                    .unwrap_or(String::from("Noto Sans"));
 
                                     shared_data.iced =
                                         iced_tiny_skia::Backend::new(iced_tiny_skia::Settings {
@@ -1350,7 +1350,7 @@ fn main() {
     let new_font: String = dconf_read_variant(dconf, "/dotfiles/somebar/font")
         .unwrap_or(String::from("FiraCode Nerd Font 14"));
     let new_font_fallback: String = dconf_read_variant(dconf, "/dotfiles/somebar/font-fallback")
-        .unwrap_or(String::from("Noto Sans CJK JP"));
+        .unwrap_or(String::from("Noto Sans"));
 
     let divider = dconf_read_variant::<String>(dconf, "/dotfiles/somebar/divider")
         .and_then(|d| d.chars().next())

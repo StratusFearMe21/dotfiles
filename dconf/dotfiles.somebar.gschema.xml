@@ -9,7 +9,7 @@
         </description>
       </key>
       <key name="font-fallback" type="s">
-        <default>"Noto Sans CJK JP"</default>
+        <default>"Noto Sans"</default>
         <summary>Status bar font fallback</summary>
         <description>
           The font that the status bar will use when drawing CJK characters. Does not include the size

@@ -9,7 +9,7 @@ edition = "2021"
 crate-type = ["staticlib"]
 
 [dependencies]
-color = { path = "../color" }
+color = { version = "0.1.0", path = "../color" }
 cssparser = "0.33.0"
 dbus = "0.9.7"
 palette = { version = "0.7.3", default-features = false, features = ["std"] }
