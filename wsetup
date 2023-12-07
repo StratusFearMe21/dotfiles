@@ -4,4 +4,4 @@ foreground { rm -rf /tmp/${USER} }
 foreground { mkdir -p /tmp/${USER}/service/.s6-svscan }
 foreground { cp /etc/s6-user/finish /tmp/${USER}/service/.s6-svscan }
 foreground { mkdir -p /tmp/${USER}/log }
-exec s6-manager /etc/s6-user/start-default /tmp/${USER}/service
+exec s6-manager $@ /tmp/${USER}/service

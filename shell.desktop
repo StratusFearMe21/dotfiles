@@ -1,7 +1,7 @@
 [Desktop Entry]
 Encoding=UTF-8
-Name=Dwl
-Comment=Dynamic window manager (Wayland)
+Name=Shell
+Comment=Fish
 Exec=/etc/greetd/wsetup /etc/greetd/spawn-shell
-Icon=Nu
+Icon=fish
 Type=Wayland

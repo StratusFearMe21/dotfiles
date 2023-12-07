@@ -1,0 +1,7 @@
+[Desktop Entry]
+Encoding=UTF-8
+Name=Raw Shell
+Comment=Fish (No S6)
+Exec=fish
+Icon=fish
+Type=Wayland

@@ -1,4 +1,5 @@
 #!/bin/execlineb -S0
 importas -i ! !
+/etc/s6-user/start-tty
 foreground { fish }
 exec kill $!

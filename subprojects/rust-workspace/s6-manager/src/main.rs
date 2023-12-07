@@ -1,4 +1,5 @@
 use std::{
+    ffi::CString,
     os::fd::{AsRawFd, FromRawFd, OwnedFd},
     time::Duration,
 };
@@ -10,8 +11,9 @@ use nix::{
     sys::{
         signal::Signal,
         signalfd::{SfdFlags, SigSet, SignalFd},
+        wait::{waitpid, WaitStatus},
     },
-    unistd::Pid,
+    unistd::{execvpe, fork, pipe, read, Pid},
 };
 use polling::{Event, Events, Poller};
 
@@ -50,16 +52,33 @@ fn main() {
         )
         .unwrap();
 
+    let fds = pipe().unwrap();
+
     let mut args = std::env::args().skip(1);
     let service_start = args.next().unwrap();
-    let mut program = std::process::Command::new("s6-svscan")
-        .args(args)
-        .env("!", std::process::id().to_string())
-        .spawn()
-        .unwrap();
-
-    while std::process::Command::new(&service_start).status().is_err() {}
-    drop(service_start);
+    let this_pid = std::process::id().to_string();
+    let program = {
+        let args: Vec<CString> = [
+            CString::new("s6-svscan").unwrap(),
+            CString::new("-d").unwrap(),
+            CString::new(fds.1.to_string()).unwrap(),
+        ]
+        .into_iter()
+        .chain(args.map(|s| CString::new(s).unwrap()))
+        .collect();
+        let filename = CString::new("s6-svscan").unwrap();
+        let env: Vec<CString> = [CString::new(format!("!={}", this_pid)).unwrap()]
+            .into_iter()
+            .chain(std::env::vars().map(|v| CString::new(format!("{}={}", v.0, v.1)).unwrap()))
+            .collect();
+        match unsafe { fork().unwrap() } {
+            nix::unistd::ForkResult::Child => {
+                execvpe(filename.as_c_str(), &args, &env).unwrap();
+                return;
+            }
+            nix::unistd::ForkResult::Parent { child } => child,
+        }
+    };
 
     let mask = SigSet::all();
     // mask.add(Signal::SIGINT);
@@ -88,7 +107,12 @@ fn main() {
                 polling::PollMode::Level,
             )
             .unwrap();
+        poller
+            .add_with_mode(fds.0, Event::readable(4), polling::PollMode::Level)
+            .unwrap();
     }
+
+    let mut pipe = Some(unsafe { OwnedFd::from_raw_fd(fds.0) });
 
     let mut events = Events::new();
     'mainloop: loop {
@@ -96,20 +120,26 @@ fn main() {
 
         for e in events.iter() {
             match e.key {
-                2 => {
-                    if matches!(
-                        signals.read_signal(),
-                        Ok(Some(signalfd_siginfo {
-                            ssi_signo: 15 | 2,
-                            ..
-                        }))
-                    ) {
-                        nix::sys::signal::kill(Pid::from_raw(program.id() as _), Signal::SIGTERM)
-                            .unwrap();
-                        program.wait().unwrap();
+                2 => match signals.read_signal() {
+                    Ok(Some(signalfd_siginfo {
+                        ssi_signo: 15 | 2, ..
+                    })) => {
+                        nix::sys::signal::kill(program, Signal::SIGTERM).unwrap();
+                        while !matches!(waitpid(program, None).unwrap(), WaitStatus::Exited(_, _)) {
+                        }
                         break 'mainloop;
                     }
-                }
+                    Ok(Some(signalfd_siginfo {
+                        ssi_signo: 17,
+                        ssi_pid,
+                        ..
+                    })) => {
+                        if Pid::from_raw(ssi_pid as i32) == program {
+                            break 'mainloop;
+                        }
+                    }
+                    _ => {}
+                },
                 3 => {
                     if conn_system
                         .channel()
@@ -122,18 +152,29 @@ fn main() {
                                 if let Ok(_) = message
                                     .read_all::<OrgFreedesktopLogin1ManagerPrepareForShutdown>()
                                 {
-                                    nix::sys::signal::kill(
-                                        Pid::from_raw(program.id() as _),
-                                        Signal::SIGTERM,
-                                    )
-                                    .unwrap();
-                                    program.wait().unwrap();
+                                    nix::sys::signal::kill(program, Signal::SIGTERM).unwrap();
+                                    while !matches!(
+                                        waitpid(program, None).unwrap(),
+                                        WaitStatus::Exited(_, _)
+                                    ) {}
                                     break 'mainloop;
                                 }
                             }
                         }
 
                         conn_system.channel().flush();
+                    }
+                }
+                4 => {
+                    if let Some(p) = pipe.take() {
+                        let mut buf = [0; 512];
+                        read(p.as_raw_fd(), &mut buf).unwrap();
+                        if buf.contains(&b'\n') {
+                            std::process::Command::new(&service_start)
+                                .env("!", std::process::id().to_string())
+                                .spawn()
+                                .unwrap();
+                        }
                     }
                 }
                 _ => {}
