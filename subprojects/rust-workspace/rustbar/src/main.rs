@@ -1436,13 +1436,10 @@ fn main() {
     event_loop
         .handle()
         .insert_source(fd, move |_, _, data| {
-            if event_queue_loop
+            event_queue_loop
                 .borrow_mut()
                 .blocking_dispatch(data)
-                .is_err()
-            {
-                panic!("display_dispatch");
-            }
+                .unwrap();
             Ok(calloop::PostAction::Continue)
         })
         .unwrap();

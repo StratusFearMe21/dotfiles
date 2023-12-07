@@ -15,7 +15,7 @@ use dbus::{
     MessageType, Path,
 };
 use dconf::CaDesrtDconfWriterNotify;
-use logind::{OrgFreedesktopLogin1Manager, OrgFreedesktopLogin1ManagerPrepareForShutdown};
+use logind::OrgFreedesktopLogin1Manager;
 use palette::IntoColor;
 
 mod dconf;
@@ -25,7 +25,6 @@ mod logind;
 pub struct WatchFFI {
     pub fd_session: c_int,
     pub fd_system: c_int,
-    pub logind_lock: c_int,
     pub read_session: c_int,
     pub write_session: c_int,
     pub read_system: c_int,
@@ -71,22 +70,10 @@ pub unsafe extern "C" fn get_fd() -> WatchFFI {
         Duration::from_secs(5),
     );
 
-    let logind_lock = system_proxy
-        .inhibit("shutdown", "DWL", "Gracefully shutdown", "delay")
-        .unwrap()
-        .into_fd();
-
     let session_path = system_proxy
         .get_session_by_pid(std::process::id())
         .unwrap()
         .into_static();
-
-    conn_system
-        .add_match(
-            MatchRule::new_signal("org.freedesktop.login1.Manager", "PrepareForShutdown"),
-            |_: (), _, _| true,
-        )
-        .unwrap();
 
     conn_system
         .add_match(
@@ -98,7 +85,6 @@ pub unsafe extern "C" fn get_fd() -> WatchFFI {
     WatchFFI {
         fd_session: watch_fd_session.fd,
         fd_system: watch_fd_system.fd,
-        logind_lock,
         read_session: if watch_fd_session.read { 1 } else { 0 },
         write_session: if watch_fd_session.write { 1 } else { 0 },
         read_system: if watch_fd_system.read { 1 } else { 0 },
@@ -147,7 +133,6 @@ pub unsafe extern "C" fn process_dbus_session(
 #[no_mangle]
 pub unsafe extern "C" fn process_dbus_system(
     dbus_system: *mut SyncConnection,
-    prepare_for_shutdown: extern "C" fn(),
     lock: extern "C" fn(),
 ) {
     let dbus_system = Box::from_raw(dbus_system);
@@ -160,10 +145,6 @@ pub unsafe extern "C" fn process_dbus_system(
         while let Some(message) = dbus_system.channel().pop_message() {
             if message.interface() == Some("org.freedesktop.login1.Session".into()) {
                 lock();
-            } else {
-                if let Ok(_) = message.read_all::<OrgFreedesktopLogin1ManagerPrepareForShutdown>() {
-                    prepare_for_shutdown();
-                }
             }
         }
 

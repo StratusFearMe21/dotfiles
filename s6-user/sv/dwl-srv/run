@@ -1,0 +1,5 @@
+#!/bin/execlineb -P
+importas -i HOME HOME
+cd ${HOME}
+fdmove -c 2 1
+exec dwl

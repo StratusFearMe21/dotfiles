@@ -113,7 +113,6 @@ typedef struct {
 struct DBusWatchRs {
 	int fd_session;
 	int fd_system;
-	int logind_lock;
 	int read_session;
 	int write_session;
 	int read_system;
@@ -394,7 +393,7 @@ static void dwl_wm_printstatus(Monitor *monitor);
 
 extern struct DBusWatchRs get_fd();
 extern void process_dbus_session(void *data_session, TSParser *parser, void (*func)(int));
-extern void process_dbus_system(void *data_system, void (*prepare)(), void(*lock)());
+extern void process_dbus_system(void *data_system, void(*lock)());
 
 /* variables */
 static TSParser *parser;
@@ -488,7 +487,6 @@ static int natural_scrolling = 0;
 static int disable_while_typing = 1;
 static int left_handed = 0;
 static int middle_button_emulation = 1;
-static int logind_fd = -1;
 
 /* logging */
 static int log_level = WLR_ERROR;
@@ -759,8 +757,6 @@ cleanup(void)
 	wl_display_destroy_clients(dpy);
 	wlr_xcursor_manager_destroy(cursor_mgr);
 	wl_display_destroy(dpy);
-	if (logind_fd != -1)
-		close(logind_fd);
 	/* Destroy after the wayland display (when the monitors are already destroyed)
 	   to avoid destroying them with an invalid scene output. */
 	wlr_scene_node_destroy(&scene->tree.node);
@@ -1486,7 +1482,7 @@ handlesig(int signo)
 		while (waitpid(-1, NULL, WNOHANG) > 0);
 #endif
 	} else if (signo == SIGINT || signo == SIGTERM) {
-		quit(NULL);
+		wl_display_terminate(dpy);
 	}
 }
 
@@ -1997,20 +1993,12 @@ printstatus(void)
 		dwl_wm_printstatus(m);
 }
 
-int
-s6_dead(int fd, uint32_t mask, void *data)
-{
-	wl_display_terminate(dpy);
-	return 0;
-}
-
 void
 quit
 (const Arg *arg)
 {
 	int s6_pid = atoi(getenv("!"));
 	kill(s6_pid, SIGTERM);
-	wl_event_loop_add_fd(wl_display_get_event_loop(dpy), pidfd_open(s6_pid, 0), WL_EVENT_READABLE, s6_dead, NULL);
 }
 
 void
@@ -2110,11 +2098,6 @@ resize(Client *c, struct wlr_box geo, int interact)
 	wlr_scene_subsurface_tree_set_clip(&c->scene_surface->node, &clip);
 }
 
-void
-prepare_for_shutdown()
-{
-	quit(NULL);
-}
 
 void
 dbus_path_function(int path)
@@ -2655,7 +2638,7 @@ dbus_watch_session(int fd, uint32_t mask, void *data)
 int
 dbus_watch_system(int fd, uint32_t mask, void *data)
 {
-	process_dbus_system(data, prepare_for_shutdown, lock_fn);
+	process_dbus_system(data, lock_fn);
 	return 0;
 }
 
@@ -2677,6 +2660,8 @@ run()
 	if (!wlr_backend_start(backend))
 		die("startup: backend_start");
 
+	static const char nl[] = { '\n' };
+	write(3, &nl, 1);
 	/* Now that the socket exists and the backend is started, run the startup command */
 	autostartexec();
 
@@ -2710,8 +2695,6 @@ run()
 	if (dbus_watch.write_system) {
 		watch_flags_system |= WL_EVENT_WRITABLE;
 	}
-
-	logind_fd = dbus_watch.logind_lock;
 
 	wl_event_loop_add_fd(wl_display_get_event_loop(dpy),dbus_watch.fd_session, watch_flags_session, dbus_watch_session, dbus_watch.data_session);
 

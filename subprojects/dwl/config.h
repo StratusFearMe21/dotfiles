@@ -1,7 +1,7 @@
 /* Autostart */
 static const char *const autostart[] = {
-    "/etc/s6-user/start-default", NULL, NULL /* terminate */
-};
+    // "/etc/s6-user/start-default", NULL, NULL /* terminate */
+    NULL};
 
 static const Rule rules[] = {
     /* app_id     title       tags mask     isfloating   monitor */
@@ -82,7 +82,8 @@ static const char *audionext[] = {"playerctl", "-p", "playerctld", "next",
                                   NULL};
 static const char *audioprev[] = {"playerctl", "-p", "playerctld", "previous",
                                   NULL};
-static const char *writeraw[] = {"sh", "-c", "wl-paste | tr -d '\\n\\r\\v' | wtype -"};
+static const char *writeraw[] = {"sh", "-c",
+                                 "wl-paste | tr -d '\\n\\r\\v' | wtype -"};
 
 static const SwitchCmd switches[] = {
     // { WLR_SWITCH_STATE_ON, WLR_SWITCH_TYPE_LID, spawn, {.v = lockcmd} },
@@ -101,7 +102,11 @@ static const Key keys[] = {
      XKB_KEY_p,
      wob,
      {.w = ZNET_TAPESOFTWARE_DWL_WM_V1_WOB_COMMAND_POWER_BUTTON}},
-    {1, 0, XKB_KEY_b, wob, {.w = ZNET_TAPESOFTWARE_DWL_WM_V1_WOB_COMMAND_OVERLAY}},
+    {1,
+     0,
+     XKB_KEY_b,
+     wob,
+     {.w = ZNET_TAPESOFTWARE_DWL_WM_V1_WOB_COMMAND_OVERLAY}},
     {1, 0, XKB_KEY_Return, spawn, {.v = termcmd}},
     {1, WLR_MODIFIER_SHIFT, XKB_KEY_N, spawn, {.v = thunarcmd}},
     {1, 0, XKB_KEY_s, spawn, {.v = grimcmd}},

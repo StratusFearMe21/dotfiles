@@ -9,6 +9,7 @@ members = [
   "dbus-dwl",
   "chromiumpsd",
   "color",
+  "s6-manager",
 ]
 
 [profile.release]
