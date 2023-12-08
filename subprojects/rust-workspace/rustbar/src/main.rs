@@ -860,9 +860,10 @@ impl SharedData {
             ($selected:expr,$primitives:expr) => {
                 if $selected {
                     match $primitives.last_mut() {
-                        Some(Primitive::Text { content, .. }) => {
+                        Some(Primitive::Text { content, color, .. }) => {
                             content.clear();
                             content.push_str(divider_hard);
+                            *color = colors.0;
                         }
                         _ => unreachable!(),
                     }
