@@ -13,7 +13,7 @@ use nix::{
         signalfd::{SfdFlags, SigSet, SignalFd},
         wait::{waitpid, WaitStatus},
     },
-    unistd::{execvpe, fork, pipe, read, Pid},
+    unistd::{execvp, fork, pipe, read, Pid},
 };
 use polling::{Event, Events, Poller};
 
@@ -56,7 +56,7 @@ fn main() {
 
     let mut args = std::env::args().skip(1);
     let service_start = args.next().unwrap();
-    let this_pid = std::process::id().to_string();
+    std::env::set_var("!", std::process::id().to_string());
     let program = {
         let args: Vec<CString> = [
             CString::new("s6-svscan").unwrap(),
@@ -67,13 +67,9 @@ fn main() {
         .chain(args.map(|s| CString::new(s).unwrap()))
         .collect();
         let filename = CString::new("s6-svscan").unwrap();
-        let env: Vec<CString> = [CString::new(format!("!={}", this_pid)).unwrap()]
-            .into_iter()
-            .chain(std::env::vars().map(|v| CString::new(format!("{}={}", v.0, v.1)).unwrap()))
-            .collect();
         match unsafe { fork().unwrap() } {
             nix::unistd::ForkResult::Child => {
-                execvpe(filename.as_c_str(), &args, &env).unwrap();
+                execvp(filename.as_c_str(), &args).unwrap();
                 return;
             }
             nix::unistd::ForkResult::Parent { child } => child,
@@ -170,10 +166,7 @@ fn main() {
                         let mut buf = [0; 512];
                         read(p.as_raw_fd(), &mut buf).unwrap();
                         if buf.contains(&b'\n') {
-                            std::process::Command::new(&service_start)
-                                .env("!", std::process::id().to_string())
-                                .spawn()
-                                .unwrap();
+                            std::process::Command::new(&service_start).spawn().unwrap();
                         }
                     }
                 }
@@ -181,5 +174,6 @@ fn main() {
             }
         }
     }
+    println!("------ Exited Gracefully ------");
     drop(logind_lock);
 }
