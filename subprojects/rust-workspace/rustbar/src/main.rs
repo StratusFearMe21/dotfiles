@@ -296,7 +296,7 @@ impl SharedData {
 
             system_connection
                 .add_match(
-                    MatchRule::new_signal("org.freedesktop.login1.Manager", "PrepareForShutdown"),
+                    MatchRule::new_signal("org.freedesktop.login1.Manager", "PrepareForSleep"),
                     |_: (), _, _| true,
                 )
                 .unwrap();
@@ -702,8 +702,8 @@ impl SharedData {
 
                             shared_data.write_bar(&sys_qh);
                         }
-                    } else if &*member == "PrepareForShutdown" {
-                        let prepare: logind::OrgFreedesktopLogin1ManagerPrepareForShutdown =
+                    } else if &*member == "PrepareForSleep" {
+                        let prepare: logind::OrgFreedesktopLogin1ManagerPrepareForSleep =
                             event.read_all().unwrap();
 
                         if !prepare.start {
@@ -726,6 +726,8 @@ impl SharedData {
                                         .unwrap_or("%m/%d/%y %A".to_owned()),
                                     Rc::clone(&sys_qh),
                                 );
+
+                                shared_data.write_bar(&sys_qh);
                             }
                         }
                     }
