@@ -1,6 +1,6 @@
 pkgname=dotfiles
 pkgver=1.20.0
-pkgrel=79
+pkgrel=80
 pkgdesc='All my dotfiles as one package'
 arch=('any')
 install=dotfiles.install
@@ -158,6 +158,7 @@ package() {
   install -Dm644 ../raw-shell.desktop "$pkgdir/usr/share/wayland-sessions/raw-shell.desktop"
   install -Dm644 ../doas.conf "$pkgdir/etc/doas.conf"
   install -Dm644 ../foot.ini "$pkgdir/usr/share/dotfiles/foot.ini"
+  install -Dm644 ../scdaemon.conf "$pkgdir/etc/gnupg/scdaemon.conf"
   install -Dm644 ../zathurarc "$pkgdir/etc/zathurarc"
   install -Dm755 ../config.fish "$pkgdir/etc/fish/conf.d/dotfiles.fish"
   install -Dm755 ../cd.fish "$pkgdir/etc/fish/functions/cd.fish"
