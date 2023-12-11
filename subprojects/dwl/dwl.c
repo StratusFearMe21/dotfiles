@@ -1,7 +1,6 @@
 /*
  * See LICENSE file for copyright and license details.
  */
-#include <getopt.h>
 #include <libinput.h>
 #include <linux/rfkill.h>
 #include <sys/ioctl.h>
