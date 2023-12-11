@@ -1,5 +1,5 @@
 project('dwl', ['c', 'cpp'],
-  version : '0.4'
+  version : '0.5'
 )
 
 subproject('libliftoff', default_options: 'default_library=static')

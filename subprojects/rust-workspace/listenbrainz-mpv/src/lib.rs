@@ -319,32 +319,28 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
                     }
                     Some(Ok(Event::PropertyChange { name, change, .. })) => {
                         if name == "pause" && data.scrobble {
-                            let PropertyData::Flag(paused) = change else {
-                                unreachable!();
-                            };
-
-                            if paused {
-                                data.pause_instant = Instant::now();
-                                data.timeout = false;
-                            } else {
-                                data.scrobble_deadline =
-                                    data.scrobble_deadline + data.pause_instant.elapsed();
-                                data.timeout = true;
+                            if let Some(PropertyData::Flag(paused)) = change {
+                                if paused {
+                                    data.pause_instant = Instant::now();
+                                    data.timeout = false;
+                                } else {
+                                    data.scrobble_deadline =
+                                        data.scrobble_deadline + data.pause_instant.elapsed();
+                                    data.timeout = true;
+                                }
                             }
                         } else if name == "speed" && data.scrobble {
-                            let PropertyData::Double(speed) = change else {
-                                unreachable!();
-                            };
-
-                            let duration = mpv.get_property::<f64>("duration").unwrap();
-                            let pos = mpv.get_property::<f64>("time-pos").unwrap();
-                            data.scrobble_deadline = Instant::now()
-                                + Duration::from_secs_f64(
-                                    scrobble_duration!(duration, speed) - pos,
-                                );
-                            data.payload.track_metadata.additional_info.duration_ms =
-                                (duration * 1000.0) as u64;
-                            data.timeout = true;
+                            if let Some(PropertyData::Double(speed)) = change {
+                                let duration = mpv.get_property::<f64>("duration").unwrap();
+                                let pos = mpv.get_property::<f64>("time-pos").unwrap();
+                                data.scrobble_deadline = Instant::now()
+                                    + Duration::from_secs_f64(
+                                        scrobble_duration!(duration, speed) - pos,
+                                    );
+                                data.payload.track_metadata.additional_info.duration_ms =
+                                    (duration * 1000.0) as u64;
+                                data.timeout = true;
+                            }
                         }
                     }
                     Some(Ok(Event::Seek)) => {

@@ -21,7 +21,6 @@ module.exports = grammar({
       $.log_level,
       $.middle_button_emulation,
       $.modkey,
-      $.mouse_follows_focus,
       $.natural_scrolling,
       $.repeat_delay,
       $.repeat_rate,
@@ -48,7 +47,6 @@ module.exports = grammar({
     log_level: _ =>    "/dotfiles/dwl/log-level",
     middle_button_emulation: _ =>    "/dotfiles/dwl/middle-button-emulation",
     modkey:    _ => "/dotfiles/dwl/modkey",
-    mouse_follows_focus: _ =>    "/dotfiles/dwl/mouse-follows-focus",
     natural_scrolling: _ =>    "/dotfiles/dwl/natural-scrolling",
     repeat_delay: _ =>    "/dotfiles/dwl/repeat-delay",
     repeat_rate: _ =>    "/dotfiles/dwl/repeat-rate",
@@ -59,6 +57,7 @@ module.exports = grammar({
     tap_to_click: _ =>    "/dotfiles/dwl/tap-to-click",
     tap_to_drag: _ =>    "/dotfiles/dwl/tap-to-drag",
     xkb_options: _ =>    "/dotfiles/dwl/xkb-options",
+    root_color: _ => "/dotfiles/dwl/root-color"
   }
 });
 

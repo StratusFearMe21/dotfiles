@@ -1,6 +1,6 @@
 pkgname=dotfiles
 pkgver=1.20.0
-pkgrel=85
+pkgrel=103
 pkgdesc='All my dotfiles as one package'
 arch=('any')
 install=dotfiles.install
@@ -95,7 +95,7 @@ depends=(
   materia-gtk-theme
   papirus-icon-theme
   qt5ct
-  xplr
+  yazi
   elogind
   wtype
   wl-clipboard
@@ -142,7 +142,6 @@ package() {
   rm -rf "$pkgdir/usr/lib/libdbus_dwl.a"
   mkdir -p "$pkgdir/etc/mpv/scripts"
   ln -sf /usr/lib/liblistenbrainz_mpv.so "$pkgdir/etc/mpv/scripts/liblistenbrainz_mpv.so"
-  ln -sf /usr/share/mpv/scripts/autoload.lua "$pkgdir/etc/mpv/scripts/autoload.lua"
   install -Dm644 ../mpv.conf "$pkgdir/etc/mpv"
   install -Dm644 ../myprofile.sh "$pkgdir/etc/profile.d/myprofile.sh"
   install -Dm644 ../cargo-env.sh "$pkgdir/etc/profile.d/cargo-env.sh"

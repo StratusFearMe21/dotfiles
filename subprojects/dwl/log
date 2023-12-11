@@ -1,16 +1,4 @@
-Get fd
-Watch {
-    fd: 57,
-    read: true,
-    write: false,
-}
-Process dbus
-Process dbus
-Process dbus
-Fd added
-Dbus watch func
-/dotfiles/dwl/disable-trackpad-while-typing
-Dbus watch func
-/dotfiles/dwl/disable-trackpad-while-typing
-Dbus watch func
-/ca/desrt/dconf-editor/
+amdgpu: amdgpu_cs_ctx_create2 failed. (-13)
+thread '<unnamed>' panicked at dbus-dwl/src/lib.rs:38:82:
+called `Result::unwrap()` on an `Err` value: D-Bus error: Failed to connect to socket /tmp/dbus-session: No such file or directory (org.freedesktop.DBus.Error.FileNotFound)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

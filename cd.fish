@@ -32,7 +32,12 @@ function cd --description "Change directory"
 
 
     if test "$argv" = ""
-        builtin cd (xplr --print-pwd-as-result)
+        set tmp (mktemp -t "yazi-cwd.XXXXX")
+        yazi $argv --cwd-file="$tmp"
+        if set cwd (cat -- "$tmp"); and [ -n "$cwd" ]; and [ "$cwd" != "$PWD" ]
+        	builtin cd -- "$cwd"
+        end
+        rm -f -- "$tmp"
     else
         builtin cd $argv
     end

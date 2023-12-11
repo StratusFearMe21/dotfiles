@@ -66,10 +66,6 @@
         },
         {
           "type": "SYMBOL",
-          "name": "mouse_follows_focus"
-        },
-        {
-          "type": "SYMBOL",
           "name": "natural_scrolling"
         },
         {
@@ -170,10 +166,6 @@
       "type": "STRING",
       "value": "/dotfiles/dwl/modkey"
     },
-    "mouse_follows_focus": {
-      "type": "STRING",
-      "value": "/dotfiles/dwl/mouse-follows-focus"
-    },
     "natural_scrolling": {
       "type": "STRING",
       "value": "/dotfiles/dwl/natural-scrolling"
@@ -213,6 +205,10 @@
     "xkb_options": {
       "type": "STRING",
       "value": "/dotfiles/dwl/xkb-options"
+    },
+    "root_color": {
+      "type": "STRING",
+      "value": "/dotfiles/dwl/root-color"
     }
   },
   "extras": [],

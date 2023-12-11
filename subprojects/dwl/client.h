@@ -10,7 +10,7 @@ static inline int
 client_is_x11(Client *c)
 {
 #ifdef XWAYLAND
-	return c->type == X11Managed || c->type == X11Unmanaged;
+	return c->type == X11;
 #endif
 	return 0;
 }
@@ -270,7 +270,8 @@ static inline int
 client_is_unmanaged(Client *c)
 {
 #ifdef XWAYLAND
-	return c->type == X11Unmanaged;
+	if (client_is_x11(c))
+		return c->surface.xwayland->override_redirect;
 #endif
 	return 0;
 }

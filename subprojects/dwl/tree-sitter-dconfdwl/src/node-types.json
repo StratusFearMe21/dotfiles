@@ -68,10 +68,6 @@
           "named": true
         },
         {
-          "type": "mouse_follows_focus",
-          "named": true
-        },
-        {
           "type": "natural_scrolling",
           "named": true
         },
@@ -172,10 +168,6 @@
   },
   {
     "type": "modkey",
-    "named": true
-  },
-  {
-    "type": "mouse_follows_focus",
     "named": true
   },
   {

@@ -82,6 +82,9 @@
       <key name="fullscreen-bg" type="s">
         <default>"#1a1a1a"</default>
       </key>
+      <key name="root-color" type="s">
+        <default>"#222222"</default>
+      </key>
       <key name="tag-count" type="i">
         <range min="1" max="18" />
         <default>9</default>
@@ -144,13 +147,6 @@
       </key>
       <key name="modkey" enum="dotfiles.dwl.Modifier">
         <default>'Logo'</default>
-      </key>
-      <key name="mouse-follows-focus" type="b">
-        <default>false</default>
-        <summary>Mouse cursor will move to a window when it is focused</summary>
-        <description>
-          The mouse cursor will move to the center of any window that gains focus
-        </description>
       </key>
     </schema>
 </schemalist>
