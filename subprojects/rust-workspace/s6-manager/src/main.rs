@@ -31,19 +31,14 @@ fn main() {
         Duration::from_secs(5),
     );
 
-    let logind_lock = unsafe {
-        OwnedFd::from_raw_fd(
-            system_proxy
-                .inhibit(
-                    "shutdown",
-                    "S6 user services",
-                    "To gracefully shutdown all user services",
-                    "delay",
-                )
-                .unwrap()
-                .into_fd(),
+    let logind_lock = system_proxy
+        .inhibit(
+            "shutdown",
+            "S6 user services",
+            "To gracefully shutdown all user services",
+            "delay",
         )
-    };
+        .unwrap();
 
     conn_system
         .add_match(

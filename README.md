@@ -60,6 +60,12 @@ From there you can navigate into the `dotfiles` folder and change various settin
 
 ***Configuration changes are applied instantly and don't require restarting the supported apps***
 
+#### Colors
+
+Colors in the configuration are expressed as Strings, and are interpreted by a CSS parser which supports much of [CSS Color 4](https://developer.chrome.com/articles/high-definition-css-color-guide/) and [CSS Color 5](https://developer.chrome.com/blog/css-relative-color-syntax/) 
+
+![dconf-color-demo](screenshot-color.png)
+
 ### Helix QueryAtoms
 You can use this syntax in the application launcher to match application names
 ```rust

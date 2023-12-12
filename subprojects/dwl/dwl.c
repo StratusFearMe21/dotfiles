@@ -110,6 +110,7 @@ struct DBusWatchRs {
     int write_system;
     void *data_session;
     void *data_system;
+		int logind_fd;
 };
 
 typedef struct Monitor Monitor;
@@ -369,10 +370,14 @@ static void dwl_wm_printstatus(Monitor *monitor);
 
 extern struct DBusWatchRs get_fd();
 extern void process_dbus_session(void *data_session, TSParser *parser, void (*func)(int));
+extern void parse_color(const char *color, float *c0, float *c1, float *c2, float *c3);
 extern void process_dbus_system(void *data_system, void(*lock)());
+extern void reinstate_logind(void *data_system, int *logind_fd);
 
 /* variables */
 static TSParser *parser;
+static int logind_fd = -1;
+static void *data_system = NULL;
 
 static const char broken[] = "broken";
 static int locked;
@@ -1565,6 +1570,11 @@ locksession(struct wl_listener *listener, void *data)
 	LISTEN(&session_lock->events.unlock, &lock->unlock, unlocksession);
 
 	wlr_session_lock_v1_send_locked(session_lock);
+
+	if (logind_fd != -1) {
+		close(logind_fd);
+		logind_fd = -1;
+	}
 }
 
 void
@@ -2014,7 +2024,6 @@ dbus_path_function(int path)
 	Client *c;
 	Monitor *m;
 	int i, j = 0;
-	double c1, c2, c3, c4;
 	
 	switch (path) {
 		case sym_accel_profile:
@@ -2063,18 +2072,20 @@ dbus_path_function(int path)
 		case sym_border_color:		
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/border-color");
 
+			bordercolor[0] = 0.337;
+			bordercolor[1] = 0.357;
+			bordercolor[2] = 0.078;
+			bordercolor[3] = 1.0;
 			if (temp) {
-				g_variant_get(temp, "(dddd)", &c1, &c2, &c3, &c4);
-				bordercolor[0] = c1;
-				bordercolor[1] = c2;
-				bordercolor[2] = c3;
-				bordercolor[3] = c4;
+				tempStr = g_variant_get_string(temp, &size);
+			  parse_color(
+					tempStr,
+					&bordercolor[0],
+					&bordercolor[1],
+					&bordercolor[2],
+					&bordercolor[3]
+				);
 				g_variant_unref(temp);
-			} else {
-				bordercolor[0] = 0.337;
-				bordercolor[1] = 0.357;
-				bordercolor[2] = 0.078;
-				bordercolor[3] = 1.0;
 			}
 
 			wl_list_for_each(c, &fstack, flink) {
@@ -2087,18 +2098,20 @@ dbus_path_function(int path)
 		case sym_root_color:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/root-color");
 
+			rootcolor[0] = 0.133;
+			rootcolor[1] = 0.133;
+			rootcolor[2] = 0.133;
+			rootcolor[3] = 1.0;
 			if (temp) {
-				g_variant_get(temp, "(dddd)", &c1, &c2, &c3, &c4);
-				rootcolor[0] = c1;
-				rootcolor[1] = c2;
-				rootcolor[2] = c3;
-				rootcolor[3] = c4;
+				tempStr = g_variant_get_string(temp, &size);
+			  parse_color(
+					tempStr,
+					&rootcolor[0],
+					&rootcolor[1],
+					&rootcolor[2],
+					&rootcolor[3]
+				);
 				g_variant_unref(temp);
-			} else {
-				rootcolor[0] = 0.133;
-				rootcolor[1] = 0.133;
-				rootcolor[2] = 0.133;
-				rootcolor[3] = 1.0;
 			}
 
 			wlr_scene_rect_set_color(root_bg, rootcolor);
@@ -2220,18 +2233,20 @@ dbus_path_function(int path)
 		case sym_focus_color:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/focus-color");
 
+			focuscolor[0] = 0.918;
+			focuscolor[1] = 0.424;
+			focuscolor[2] = 0.451;
+			focuscolor[3] = 1.0;
 			if (temp) {
-				g_variant_get(temp, "(dddd)", &c1, &c2, &c3, &c4);
-				focuscolor[0] = c1;
-				focuscolor[1] = c2;
-				focuscolor[2] = c3;
-				focuscolor[3] = c4;
+				tempStr = g_variant_get_string(temp, &size);
+			  parse_color(
+					tempStr,
+					&focuscolor[0],
+					&focuscolor[1],
+					&focuscolor[2],
+					&focuscolor[3]
+				);
 				g_variant_unref(temp);
-			} else {
-				focuscolor[0] = 0.918;
-				focuscolor[1] = 0.424;
-				focuscolor[2] = 0.451;
-				focuscolor[3] = 1.0;
 			}
 
 			wl_list_for_each(c, &fstack, flink) {
@@ -2244,18 +2259,20 @@ dbus_path_function(int path)
 		case sym_fullscreen_bg:
 			temp = dconf_client_read(dconf_client, "/dotfiles/dwl/fullscreen-bg");
 
+			fullscreen_bg[0] = 0.1;
+			fullscreen_bg[1] = 0.1;
+			fullscreen_bg[2] = 0.1;
+			fullscreen_bg[3] = 1.0;
 			if (temp) {
-				g_variant_get(temp, "(dddd)", &c1, &c2, &c3, &c4);
-				fullscreen_bg[0] = c1;
-				fullscreen_bg[1] = c2;
-				fullscreen_bg[2] = c3;
-				fullscreen_bg[3] = c4;
+				tempStr = g_variant_get_string(temp, &size);
+			  parse_color(
+					tempStr,
+					&fullscreen_bg[0],
+					&fullscreen_bg[1],
+					&fullscreen_bg[2],
+					&fullscreen_bg[3]
+				);
 				g_variant_unref(temp);
-			} else {
-				fullscreen_bg[0] = 0.1;
-				fullscreen_bg[1] = 0.1;
-				fullscreen_bg[2] = 0.1;
-				fullscreen_bg[3] = 1.0;
 			}
 
 			wl_list_for_each(m, &mons, link)
@@ -2538,8 +2555,8 @@ dbus_path_function(int path)
 void
 lock_fn()
 {
-    const Arg arg = {.v = lockcmd};
-    spawn(&arg);
+	const Arg arg = {.v = lockcmd};
+	spawn(&arg);
 }
 
 int
@@ -2591,6 +2608,7 @@ run()
 	wlr_cursor_set_xcursor(cursor, cursor_mgr, "default");
 
 	dbus_watch = get_fd();
+	logind_fd = dbus_watch.logind_fd;
 
 	if (dbus_watch.read_session) {
       watch_flags_session |= WL_EVENT_READABLE;
@@ -2611,6 +2629,7 @@ run()
 	wl_event_loop_add_fd(wl_display_get_event_loop(dpy),dbus_watch.fd_session, watch_flags_session, dbus_watch_session, dbus_watch.data_session);
 
   wl_event_loop_add_fd(wl_display_get_event_loop(dpy),dbus_watch.fd_system, watch_flags_system, dbus_watch_system, dbus_watch.data_system);
+	data_system = dbus_watch.data_system;
 
 	/* Run the Wayland event loop. This does not return until you exit the
 	 * compositor. Starting the backend rigged up all of the necessary event
@@ -2778,7 +2797,6 @@ config(void)
 	dconf_client = dconf_client_new();
 	gsize size;
 	const gchar *tempStr;
-	double c1, c2, c3, c4;
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/accel-profile");
 
@@ -2804,11 +2822,14 @@ config(void)
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/border-color");
 
 	if (temp) {
-		g_variant_get(temp, "(dddd)", &c1, &c2, &c3, &c4);
-		bordercolor[0] = c1;
-		bordercolor[1] = c2;
-		bordercolor[2] = c3;
-		bordercolor[3] = c4;
+		tempStr = g_variant_get_string(temp, &size);
+	  parse_color(
+			tempStr,
+			&bordercolor[0],
+			&bordercolor[1],
+			&bordercolor[2],
+			&bordercolor[3]
+		);
 		g_variant_unref(temp);
 	}
 
@@ -2869,33 +2890,42 @@ config(void)
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/focus-color");
 
 	if (temp) {
-		g_variant_get(temp, "(dddd)", &c1, &c2, &c3, &c4);
-		focuscolor[0] = c1;
-		focuscolor[1] = c2;
-		focuscolor[2] = c3;
-		focuscolor[3] = c4;
+		tempStr = g_variant_get_string(temp, &size);
+	  parse_color(
+			tempStr,
+			&focuscolor[0],
+			&focuscolor[1],
+			&focuscolor[2],
+			&focuscolor[3]
+		);
 		g_variant_unref(temp);
 	}
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/root-color");
 
 	if (temp) {
-		g_variant_get(temp, "(dddd)", &c1, &c2, &c3, &c4);
-		rootcolor[0] = c1;
-		rootcolor[1] = c2;
-		rootcolor[2] = c3;
-		rootcolor[3] = c4;
+		tempStr = g_variant_get_string(temp, &size);
+	  parse_color(
+			tempStr,
+			&rootcolor[0],
+			&rootcolor[1],
+			&rootcolor[2],
+			&rootcolor[3]
+		);
 		g_variant_unref(temp);
 	}
 
 	temp = dconf_client_read(dconf_client, "/dotfiles/dwl/fullscreen-bg");
 
 	if (temp) {
-		g_variant_get(temp, "(dddd)", &c1, &c2, &c3, &c4);
-		fullscreen_bg[0] = c1;
-		fullscreen_bg[1] = c2;
-		fullscreen_bg[2] = c3;
-		fullscreen_bg[3] = c4;
+		tempStr = g_variant_get_string(temp, &size);
+	  parse_color(
+			tempStr,
+			&fullscreen_bg[0],
+			&fullscreen_bg[1],
+			&fullscreen_bg[2],
+			&fullscreen_bg[3]
+		);
 		g_variant_unref(temp);
 	}
 
@@ -3383,6 +3413,7 @@ void
 unlocksession(struct wl_listener *listener, void *data)
 {
 	SessionLock *lock = wl_container_of(listener, lock, unlock);
+	reinstate_logind(data_system, &logind_fd);
 	destroylock(lock, 1);
 }
 

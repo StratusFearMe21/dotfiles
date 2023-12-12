@@ -2,6 +2,7 @@
 use std::{
     ffi::{c_char, c_int, CStr},
     mem::ManuallyDrop,
+    os::fd::{FromRawFd, IntoRawFd, OwnedFd},
     time::Duration,
 };
 
@@ -31,6 +32,7 @@ pub struct WatchFFI {
     pub write_system: c_int,
     pub data_session: *mut SyncConnection,
     pub data_system: *mut SyncConnection,
+    pub logind_fd: c_int,
 }
 
 #[no_mangle]
@@ -82,6 +84,17 @@ pub unsafe extern "C" fn get_fd() -> WatchFFI {
         )
         .unwrap();
 
+    conn_system
+        .add_match(
+            MatchRule::new_signal("org.freedesktop.login1.Manager", "PrepareForSleep"),
+            |_: (), _, _| true,
+        )
+        .unwrap();
+
+    let logind_lock = system_proxy
+        .inhibit("sleep", "DWL", "To lock the system when sleeping", "delay")
+        .unwrap();
+
     WatchFFI {
         fd_session: watch_fd_session.fd,
         fd_system: watch_fd_system.fd,
@@ -91,6 +104,7 @@ pub unsafe extern "C" fn get_fd() -> WatchFFI {
         write_system: if watch_fd_system.write { 1 } else { 0 },
         data_session: Box::into_raw(Box::new(conn_session)),
         data_system: Box::into_raw(Box::new(conn_system)),
+        logind_fd: logind_lock.into_raw_fd(),
     }
 }
 
@@ -131,6 +145,27 @@ pub unsafe extern "C" fn process_dbus_session(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn reinstate_logind(dbus_system: *mut SyncConnection, logind_fd: *mut c_int) {
+    let dbus_system = Box::from_raw(dbus_system);
+
+    let system_proxy = dbus_system.with_proxy(
+        "org.freedesktop.login1",
+        "/org/freedesktop/login1",
+        Duration::from_secs(5),
+    );
+    if *logind_fd != -1 {
+        drop(OwnedFd::from_raw_fd(*logind_fd));
+        *logind_fd = -1;
+    }
+    *logind_fd = system_proxy
+        .inhibit("sleep", "DWL", "To lock the system when sleeping", "delay")
+        .unwrap()
+        .into_raw_fd();
+
+    Box::into_raw(dbus_system);
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn process_dbus_system(
     dbus_system: *mut SyncConnection,
     lock: extern "C" fn(),
@@ -143,8 +178,18 @@ pub unsafe extern "C" fn process_dbus_system(
         .is_ok()
     {
         while let Some(message) = dbus_system.channel().pop_message() {
-            if message.interface() == Some("org.freedesktop.login1.Session".into()) {
-                lock();
+            match message.interface().as_ref().map(|i| i.as_ref()) {
+                Some("org.freedesktop.login1.Session") => lock(),
+                Some("org.freedesktop.login1.Manager") => {
+                    if let Ok(prepare) =
+                        message.read_all::<logind::OrgFreedesktopLogin1ManagerPrepareForSleep>()
+                    {
+                        if prepare.start {
+                            lock();
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
