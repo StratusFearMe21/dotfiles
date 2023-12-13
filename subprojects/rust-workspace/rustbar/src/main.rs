@@ -79,6 +79,7 @@ use smithay_client_toolkit::seat::keyboard::KeyEvent;
 use smithay_client_toolkit::seat::keyboard::KeyboardHandler;
 use smithay_client_toolkit::seat::keyboard::Keysym;
 use smithay_client_toolkit::seat::keyboard::Modifiers;
+use smithay_client_toolkit::seat::keyboard::RepeatInfo;
 use smithay_client_toolkit::seat::pointer::cursor_shape::CursorShapeManager;
 use smithay_client_toolkit::seat::pointer::BTN_LEFT;
 use smithay_client_toolkit::shell::wlr_layer::KeyboardInteractivity;
@@ -1780,6 +1781,8 @@ pub struct SimpleLayer {
     clipboard_state: clipboard::state::State,
     settings_parser: tree_sitter::Parser,
     modifiers: Modifiers,
+    repeat_info: RepeatInfo,
+    repeat_handle: RegistrationToken,
 }
 
 impl SimpleLayer {
@@ -1817,6 +1820,12 @@ impl SimpleLayer {
             shared_data,
             layer_shell,
             compositor_state,
+            repeat_handle: loop_handle
+                .insert_source(
+                    Timer::from_duration(Duration::from_secs(u64::MAX)),
+                    |_, _, _| TimeoutAction::Drop,
+                )
+                .unwrap(),
             loop_handle,
             ascii_font_width: iced
                 .measure(
@@ -1860,6 +1869,7 @@ impl SimpleLayer {
             giac: ffi::new_ctx(),
             clipboard_state,
             modifiers: Modifiers::default(),
+            repeat_info: RepeatInfo::Disable,
         }
     }
 
@@ -2362,39 +2372,38 @@ impl SeatHandler for SimpleLayer {
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
 }
 
-impl KeyboardHandler for SimpleLayer {
-    fn enter(
-        &mut self,
-        _: &Connection,
-        _: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard,
-        _: &wl_surface::WlSurface,
-        serial: u32,
-        _: &[u32],
-        _: &[Keysym],
-    ) {
-        self.clipboard_state.keyboard_enter(serial);
+impl SimpleLayer {
+    fn init_repeat(&mut self, qh: &QueueHandle<SimpleLayer>, serial: u32, event: KeyEvent) {
+        self.loop_handle.remove(self.repeat_handle);
+        let loop_qh = qh.clone();
+        match self.repeat_info {
+            RepeatInfo::Repeat { delay, .. } => {
+                self.repeat_handle = self
+                    .loop_handle
+                    .insert_source(
+                        Timer::from_duration(Duration::from_millis(delay as _)),
+                        move |_, _, state| match state.repeat_info {
+                            RepeatInfo::Repeat { rate, .. } => {
+                                state.handle_kb_event(&loop_qh, serial, &event);
+                                TimeoutAction::ToDuration(Duration::from_secs_f64(
+                                    1.0 / rate.get() as f64,
+                                ))
+                            }
+                            RepeatInfo::Disable => TimeoutAction::Drop,
+                        },
+                    )
+                    .unwrap();
+            }
+            RepeatInfo::Disable => {}
+        }
     }
 
-    fn leave(
+    fn handle_kb_event(
         &mut self,
-        _: &Connection,
-        _: &QueueHandle<Self>,
-        _: &wl_keyboard::WlKeyboard,
-        _: &wl_surface::WlSurface,
-        _: u32,
-    ) {
-        self.clipboard_state.keyboard_leave();
-    }
-
-    fn press_key(
-        &mut self,
-        _conn: &Connection,
-        qh: &QueueHandle<Self>,
-        _keyboard: &wl_keyboard::WlKeyboard,
+        qh: &QueueHandle<SimpleLayer>,
         serial: u32,
-        event: KeyEvent,
-    ) {
+        event: &KeyEvent,
+    ) -> bool {
         self.clipboard_state.keyboard_key(serial);
         let monitor = self.monitors.values_mut().find(|o| o.selected).unwrap();
         match event.keysym {
@@ -2417,6 +2426,8 @@ impl KeyboardHandler for SimpleLayer {
                     monitor.output.frame_req = true;
                 }
                 monitor.output.layer_surface.commit();
+                self.loop_handle.remove(self.repeat_handle);
+                return false;
             }
             Keysym::BackSpace => match &mut monitor.bar_state {
                 BarState::AppLauncher { current_input, .. } => {
@@ -2448,8 +2459,8 @@ impl KeyboardHandler for SimpleLayer {
                         self.clipboard_state
                             .load_selection(SelectionTarget::Clipboard, Rc::clone(current_input))
                             .unwrap();
-                    } else if let Some(c) = event.utf8 {
-                        current_input.borrow_mut().push_str(&c);
+                    } else if let Some(ref c) = event.utf8 {
+                        current_input.borrow_mut().push_str(c);
                         monitor.output.frame(qh);
                         self.layout_applauncher();
                     }
@@ -2507,14 +2518,54 @@ impl KeyboardHandler for SimpleLayer {
             },
             _ => match &mut monitor.bar_state {
                 BarState::AppLauncher { current_input, .. } => {
-                    if let Some(c) = event.utf8 {
-                        current_input.borrow_mut().push_str(&c);
+                    if let Some(ref c) = event.utf8 {
+                        current_input.borrow_mut().push_str(c);
                         monitor.output.frame(qh);
                         self.layout_applauncher();
                     }
                 }
                 _ => {}
             },
+        }
+        true
+    }
+}
+
+impl KeyboardHandler for SimpleLayer {
+    fn enter(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: &wl_surface::WlSurface,
+        serial: u32,
+        _: &[u32],
+        _: &[Keysym],
+    ) {
+        self.clipboard_state.keyboard_enter(serial);
+    }
+
+    fn leave(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: &wl_surface::WlSurface,
+        _: u32,
+    ) {
+        self.clipboard_state.keyboard_leave();
+    }
+
+    fn press_key(
+        &mut self,
+        _conn: &Connection,
+        qh: &QueueHandle<Self>,
+        _keyboard: &wl_keyboard::WlKeyboard,
+        serial: u32,
+        event: KeyEvent,
+    ) {
+        if self.handle_kb_event(qh, serial, &event) {
+            self.init_repeat(qh, serial, event);
         }
     }
 
@@ -2526,6 +2577,7 @@ impl KeyboardHandler for SimpleLayer {
         _: u32,
         _: KeyEvent,
     ) {
+        self.loop_handle.remove(self.repeat_handle);
     }
 
     fn update_modifiers(
@@ -2537,6 +2589,16 @@ impl KeyboardHandler for SimpleLayer {
         modifiers: Modifiers,
     ) {
         self.modifiers = modifiers;
+    }
+
+    fn update_repeat_info(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wl_keyboard::WlKeyboard,
+        info: smithay_client_toolkit::seat::keyboard::RepeatInfo,
+    ) {
+        self.repeat_info = info;
     }
 }
 
