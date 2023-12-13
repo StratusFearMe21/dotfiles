@@ -1,6 +1,6 @@
 pkgname=dotfiles
 pkgver=1.20.0
-pkgrel=108
+pkgrel=119
 pkgdesc='All my dotfiles as one package'
 arch=('any')
 install=dotfiles.install
@@ -102,6 +102,7 @@ depends=(
   mako
   noto-fonts-cjk
   noto-fonts
+  giac
   # profile-sync-daemon
 )
 makedepends=(

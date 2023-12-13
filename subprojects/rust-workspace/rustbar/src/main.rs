@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ffi::CString;
 use std::io::BufWriter;
 use std::io::Write;
 use std::ops::AddAssign;
@@ -9,10 +10,11 @@ use std::os::fd::BorrowedFd;
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
 use std::ptr::NonNull;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{ffi::CString, rc::Rc};
 
+use clipboard::state::SelectionTarget;
 use color::DefaultColorParser;
 use components::{
     battery::BatteryBlock,
@@ -55,8 +57,11 @@ use iced_tiny_skia::{
 use memchr::memchr;
 use nucleo_matcher::pattern::Pattern;
 use palette::IntoColor;
+use push_str::PushString;
 use rusqlite::OpenFlags;
+use smithay_client_toolkit::delegate_data_device;
 use smithay_client_toolkit::delegate_keyboard;
+use smithay_client_toolkit::delegate_primary_selection;
 use smithay_client_toolkit::globals::GlobalData;
 use smithay_client_toolkit::reexports::calloop::timer::TimeoutAction;
 use smithay_client_toolkit::reexports::calloop::timer::Timer;
@@ -106,6 +111,7 @@ use yoke::Yokeable;
 use znet_dwl::znet_tapesoftware_dwl_wm_monitor_v1::ZnetTapesoftwareDwlWmMonitorV1;
 use znet_dwl::znet_tapesoftware_dwl_wm_v1::WobCommand;
 use znet_dwl::znet_tapesoftware_dwl_wm_v1::ZnetTapesoftwareDwlWmV1;
+use cxx::UniquePtr;
 
 mod connman;
 mod dconf;
@@ -113,7 +119,9 @@ mod logind;
 mod mpris;
 mod upower;
 
+mod clipboard;
 mod components;
+mod push_str;
 mod tags;
 
 include!(concat!(env!("OUT_DIR"), "/kinds.rs"));
@@ -137,6 +145,20 @@ pub mod znet_dwl {
     wayland_scanner::generate_client_code!(
         "../../dwl/protocols/net-tapesoftware-dwl-wm-unstable-v1.xml"
     );
+}
+
+#[cxx::bridge(namespace = "wrapper")]
+pub mod ffi {
+
+    unsafe extern "C++" {
+        include!("rustbar/src/wrapper.h");
+
+        #[namespace = "giac"]
+        type context;
+
+        unsafe fn eval(expr: *const c_char, ctx: *const context) -> String;
+        fn new_ctx() -> UniquePtr<context>;
+    }
 }
 
 #[macro_export]
@@ -191,7 +213,7 @@ enum BarState {
     AppLauncher {
         apps: yoke::Yoke<Commands<'static>, Vec<DesktopCommand>>,
         layout: Vec<Primitive>,
-        current_input: String,
+        current_input: Rc<RefCell<PushString>>,
         default: String,
         selected: usize,
         prompt: &'static str,
@@ -1414,9 +1436,13 @@ fn main() {
 
     let shared_data = SharedData::new(&handle, Rc::clone(&qh), dconf);
 
+    let seat_state = SeatState::new(&globals, &qh);
+    let clipboard_state =
+        clipboard::state::State::new(&globals, qh.as_ref(), event_loop.handle()).unwrap();
+
     let mut simple_layer = SimpleLayer::new(
         RegistryState::new(&globals),
-        SeatState::new(&globals, &qh),
+        seat_state,
         OutputState::new(&globals, &qh),
         shm,
         event_loop.get_signal(),
@@ -1432,6 +1458,7 @@ fn main() {
         unsafe { std::mem::transmute(event_loop.handle()) },
         fractional_scale,
         viewporter,
+        clipboard_state,
     );
 
     let event_queue = Rc::new(RefCell::new(event_queue));
@@ -1749,7 +1776,10 @@ pub struct SimpleLayer {
     shared_data: SharedData,
     bar_settings: BarSettings,
     matcher: nucleo_matcher::Matcher,
+    giac: UniquePtr<ffi::context>,
+    clipboard_state: clipboard::state::State,
     settings_parser: tree_sitter::Parser,
+    modifiers: Modifiers,
 }
 
 impl SimpleLayer {
@@ -1771,6 +1801,7 @@ impl SimpleLayer {
         loop_handle: LoopHandle<'static, SimpleLayer>,
         fractional_scaling: WpFractionalScaleManagerV1,
         viewporter: WpViewporter,
+        clipboard_state: clipboard::state::State,
     ) -> SimpleLayer {
         let mut tmp = [0; 4];
         Self {
@@ -1826,6 +1857,9 @@ impl SimpleLayer {
             },
             fractional_scaling,
             viewporter,
+            giac: ffi::new_ctx(),
+            clipboard_state,
+            modifiers: Modifiers::default(),
         }
     }
 
@@ -1848,7 +1882,7 @@ impl SimpleLayer {
             } => {
                 layout.clear();
                 let logical_height = monitor.output.viewport.logical_size().height;
-                let input_string = format!("{}: {}", prompt, current_input);
+                let input_string = format!("{}: {}", prompt, current_input.borrow());
 
                 let width = self
                     .iced
@@ -1897,7 +1931,7 @@ impl SimpleLayer {
 
                 let mut width_at = (self.bar_settings.padding_x * 2.0) + width;
                 let query = Pattern::parse(
-                    &current_input,
+                    current_input.borrow().as_ref(),
                     nucleo_matcher::pattern::CaseMatching::Ignore,
                 );
 
@@ -1917,50 +1951,23 @@ impl SimpleLayer {
                 core::mem::swap(&mut apps_old, apps);
                 *apps = map_project_query(apps_old, &mut self.matcher, query);
                 let apps = apps.get();
-                for (index, (item, _)) in (&apps.1[..15.min(apps.1.len())]).into_iter().enumerate()
-                {
-                    let measurement = self
-                        .iced
-                        .measure(
-                            &item.name,
-                            self.iced.default_size(),
-                            LineHeight::Relative(1.0),
-                            self.bar_settings.default_font,
-                            Size {
-                                width: f32::INFINITY,
-                                height: f32::INFINITY,
-                            },
-                            Shaping::Basic,
+                if apps.1.is_empty() {
+                    let content = unsafe {
+                        ffi::eval(
+                            current_input.borrow().as_ptr(),
+                            self.giac.as_ref().unwrap() as *const _,
                         )
-                        .width;
-                    if index == *selected {
-                        layout.push(Primitive::Quad {
-                            bounds: Rectangle {
-                                x: width_at,
-                                y: 0.0,
-                                width: (self.bar_settings.padding_x * 2.0) + measurement,
-                                height: logical_height,
-                            },
-                            background: Background::Color(self.bar_settings.color_active.1),
-                            border_radius: [0.0, 0.0, 0.0, 0.0],
-                            border_width: 0.0,
-                            border_color: Color::TRANSPARENT,
-                        });
-                    }
+                    };
                     width_at += self.bar_settings.padding_x;
                     layout.push(Primitive::Text {
-                        content: item.name.clone(),
+                        content,
                         bounds: Rectangle {
                             x: width_at,
                             y: logical_height / 2.0,
                             width: f32::INFINITY,
                             height: logical_height,
                         },
-                        color: if index == *selected {
-                            self.bar_settings.color_active.0
-                        } else {
-                            self.bar_settings.color_inactive.0
-                        },
+                        color: self.bar_settings.color_inactive.0,
                         size: self.iced.default_size(),
                         line_height: LineHeight::Relative(1.0),
                         font: self.bar_settings.default_font,
@@ -1968,8 +1975,62 @@ impl SimpleLayer {
                         vertical_alignment: Vertical::Center,
                         shaping: Shaping::Basic,
                     });
-                    width_at += measurement;
-                    width_at += self.bar_settings.padding_x;
+                } else {
+                    for (index, (item, _)) in
+                        (&apps.1[..15.min(apps.1.len())]).into_iter().enumerate()
+                    {
+                        let measurement = self
+                            .iced
+                            .measure(
+                                &item.name,
+                                self.iced.default_size(),
+                                LineHeight::Relative(1.0),
+                                self.bar_settings.default_font,
+                                Size {
+                                    width: f32::INFINITY,
+                                    height: f32::INFINITY,
+                                },
+                                Shaping::Basic,
+                            )
+                            .width;
+                        if index == *selected {
+                            layout.push(Primitive::Quad {
+                                bounds: Rectangle {
+                                    x: width_at,
+                                    y: 0.0,
+                                    width: (self.bar_settings.padding_x * 2.0) + measurement,
+                                    height: logical_height,
+                                },
+                                background: Background::Color(self.bar_settings.color_active.1),
+                                border_radius: [0.0, 0.0, 0.0, 0.0],
+                                border_width: 0.0,
+                                border_color: Color::TRANSPARENT,
+                            });
+                        }
+                        width_at += self.bar_settings.padding_x;
+                        layout.push(Primitive::Text {
+                            content: item.name.clone(),
+                            bounds: Rectangle {
+                                x: width_at,
+                                y: logical_height / 2.0,
+                                width: f32::INFINITY,
+                                height: logical_height,
+                            },
+                            color: if index == *selected {
+                                self.bar_settings.color_active.0
+                            } else {
+                                self.bar_settings.color_inactive.0
+                            },
+                            size: self.iced.default_size(),
+                            line_height: LineHeight::Relative(1.0),
+                            font: self.bar_settings.default_font,
+                            horizontal_alignment: Horizontal::Left,
+                            vertical_alignment: Vertical::Center,
+                            shaping: Shaping::Basic,
+                        });
+                        width_at += measurement;
+                        width_at += self.bar_settings.padding_x;
+                    }
                 }
             }
             _ => unreachable!(),
@@ -2275,13 +2336,14 @@ impl SeatHandler for SimpleLayer {
                 .expect("Failed to create pointer");
             self.pointer = Some(pointer);
         }
+        self.clipboard_state.new_capability(qh, seat, capability);
     }
 
     fn remove_capability(
         &mut self,
         _conn: &Connection,
         _: &QueueHandle<Self>,
-        _: wl_seat::WlSeat,
+        seat: wl_seat::WlSeat,
         capability: Capability,
     ) {
         if capability == Capability::Keyboard && self.keyboard.is_some() {
@@ -2293,6 +2355,8 @@ impl SeatHandler for SimpleLayer {
             println!("Unset pointer capability");
             self.pointer.take().unwrap().release();
         }
+
+        self.clipboard_state.remove_capability(seat, capability)
     }
 
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
@@ -2305,10 +2369,11 @@ impl KeyboardHandler for SimpleLayer {
         _: &QueueHandle<Self>,
         _: &wl_keyboard::WlKeyboard,
         _: &wl_surface::WlSurface,
-        _: u32,
+        serial: u32,
         _: &[u32],
         _: &[Keysym],
     ) {
+        self.clipboard_state.keyboard_enter(serial);
     }
 
     fn leave(
@@ -2319,6 +2384,7 @@ impl KeyboardHandler for SimpleLayer {
         _: &wl_surface::WlSurface,
         _: u32,
     ) {
+        self.clipboard_state.keyboard_leave();
     }
 
     fn press_key(
@@ -2326,9 +2392,10 @@ impl KeyboardHandler for SimpleLayer {
         _conn: &Connection,
         qh: &QueueHandle<Self>,
         _keyboard: &wl_keyboard::WlKeyboard,
-        _: u32,
+        serial: u32,
         event: KeyEvent,
     ) {
+        self.clipboard_state.keyboard_key(serial);
         let monitor = self.monitors.values_mut().find(|o| o.selected).unwrap();
         match event.keysym {
             Keysym::Escape => {
@@ -2353,7 +2420,7 @@ impl KeyboardHandler for SimpleLayer {
             }
             Keysym::BackSpace => match &mut monitor.bar_state {
                 BarState::AppLauncher { current_input, .. } => {
-                    current_input.pop();
+                    current_input.borrow_mut().pop();
                     monitor.output.frame(qh);
                     self.layout_applauncher();
                 }
@@ -2375,6 +2442,19 @@ impl KeyboardHandler for SimpleLayer {
                 }
                 _ => {}
             },
+            Keysym::v => {
+                if let BarState::AppLauncher { current_input, .. } = &mut monitor.bar_state {
+                    if self.modifiers.ctrl {
+                        self.clipboard_state
+                            .load_selection(SelectionTarget::Clipboard, Rc::clone(current_input))
+                            .unwrap();
+                    } else if let Some(c) = event.utf8 {
+                        current_input.borrow_mut().push_str(&c);
+                        monitor.output.frame(qh);
+                        self.layout_applauncher();
+                    }
+                }
+            }
             Keysym::Return => match &mut monitor.bar_state {
                 BarState::AppLauncher {
                     apps,
@@ -2383,14 +2463,24 @@ impl KeyboardHandler for SimpleLayer {
                     current_input,
                     ..
                 } => {
-                    if let Some((app, _)) = apps.get().1.get(*selected) {
+                    if self.modifiers.shift {
+                        let content = unsafe {
+                            ffi::eval(
+                                current_input.borrow().as_ptr(),
+                                self.giac.as_ref().unwrap() as *const _,
+                            )
+                        };
+                        self.clipboard_state
+                            .store_selection(clipboard::state::SelectionTarget::Clipboard, content)
+                            .unwrap();
+                    } else if let Some((app, _)) = apps.get().1.get(*selected) {
                         std::process::Command::new("sh")
                             .args(["-c", &app.command])
                             .spawn()
                             .unwrap();
                     } else {
                         let _ = std::process::Command::new("sh")
-                            .args(["-c", &format!("{}{}", default, current_input)])
+                            .args(["-c", &format!("{}{}", default, current_input.borrow())])
                             .spawn();
                     }
 
@@ -2418,7 +2508,7 @@ impl KeyboardHandler for SimpleLayer {
             _ => match &mut monitor.bar_state {
                 BarState::AppLauncher { current_input, .. } => {
                     if let Some(c) = event.utf8 {
-                        current_input.push_str(&c);
+                        current_input.borrow_mut().push_str(&c);
                         monitor.output.frame(qh);
                         self.layout_applauncher();
                     }
@@ -2444,8 +2534,9 @@ impl KeyboardHandler for SimpleLayer {
         _: &QueueHandle<Self>,
         _: &wl_keyboard::WlKeyboard,
         _serial: u32,
-        _modifiers: Modifiers,
+        modifiers: Modifiers,
     ) {
+        self.modifiers = modifiers;
     }
 }
 
@@ -2457,6 +2548,7 @@ impl PointerHandler for SimpleLayer {
         pointer: &wl_pointer::WlPointer,
         events: &[PointerEvent],
     ) {
+        self.clipboard_state.pointer_frame(events);
         use PointerEventKind::*;
         for event in events {
             if let Some(monitor) = self.monitors.get_mut(&event.surface.id()) {
@@ -3151,6 +3243,9 @@ delegate_seat!(SimpleLayer);
 delegate_keyboard!(SimpleLayer);
 delegate_pointer!(SimpleLayer);
 
+delegate_data_device!(SimpleLayer);
+delegate_primary_selection!(SimpleLayer);
+
 delegate_layer!(SimpleLayer);
 
 delegate_registry!(SimpleLayer);
@@ -3282,7 +3377,7 @@ impl
                                     Commands(cart, Vec::new())
                                 }),
                                 default: String::new(),
-                                current_input: String::new(),
+                                current_input: Rc::new(RefCell::new(PushString::new())),
                                 layout: Vec::new(),
                                 selected: 0,
                                 prompt: "run"
@@ -3342,7 +3437,7 @@ impl
                                     Commands(cart, Vec::new())
                                 }),
                                 default: state.bar_settings.browser.clone(),
-                                current_input: String::new(),
+                                current_input: Rc::new(RefCell::new(PushString::new())),
                                 layout: Vec::new(),
                                 selected: 0,
                                 prompt: "browser"

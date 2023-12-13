@@ -44,4 +44,15 @@ fn main() {
 
     out_enum.write_all(b"#[default] Invalid}").unwrap();
     println!("cargo:rerun-if-changed=../tree-sitter-dconfsomebar/src/parser.c");
+
+    cxx_build::bridge("src/main.rs")
+        .file("src/wrapper.cpp")
+        .flag_if_supported("-std=c++14")
+        .compile("cxxbridge-demo");
+
+    println!("cargo:rustc-link-lib=giac");
+    println!("cargo:rustc-link-lib=gmp");
+    println!("cargo:rerun-if-changed=src/main.rs");
+    println!("cargo:rerun-if-changed=src/wrapper.cpp");
+    println!("cargo:rerun-if-changed=src/wrapper.h");
 }

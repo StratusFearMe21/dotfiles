@@ -11,7 +11,7 @@ tiny-skia = "0.10"
 calloop-dbus = { path = "../calloop-dbus" }
 dbus = "0.9.7"
 dirs = "5.0.1"
-nix = { version = "0.27.1", default-features = false, features = ["inotify"] }
+nix = { version = "0.27.1", default-features = false, features = ["inotify", "fs"] }
 rand = { version = "0.8.5", default-features = false, features = ["std"] }
 dconf-sys = { path = "../dconf-sys" }
 glib = "0.18.1"
@@ -33,8 +33,10 @@ tree-sitter-dconfsomebar = { version = "0.0.1", path = "../tree-sitter-dconfsome
 tree-sitter = "0.20.10"
 url = "2.5.0"
 pct-str = "2.0.0"
+cxx = "1.0.110"
 
 [build-dependencies]
 tree-sitter-dconfsomebar = { version = "0.0.1", path = "../tree-sitter-dconfsomebar" }
 tree-sitter = "0.20.10"
 case = "1.0.0"
+cxx-build = "1.0.110"
