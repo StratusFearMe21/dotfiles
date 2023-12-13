@@ -47,7 +47,6 @@ fn main() {
 
     cxx_build::bridge("src/main.rs")
         .file("src/wrapper.cpp")
-        .flag_if_supported("-std=c++14")
         .compile("cxxbridge-demo");
 
     println!("cargo:rustc-link-lib=giac");
