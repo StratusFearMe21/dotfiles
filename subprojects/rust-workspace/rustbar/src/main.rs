@@ -2431,7 +2431,11 @@ impl SimpleLayer {
             }
             Keysym::BackSpace => match &mut monitor.bar_state {
                 BarState::AppLauncher { current_input, .. } => {
-                    current_input.borrow_mut().pop();
+                    if self.modifiers.ctrl {
+                        current_input.borrow_mut().clear();
+                    } else {
+                        current_input.borrow_mut().pop();
+                    }
                     monitor.output.frame(qh);
                     self.layout_applauncher();
                 }

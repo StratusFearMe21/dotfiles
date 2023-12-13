@@ -1,5 +1,6 @@
 use std::{ffi::c_char, fmt::Display};
 
+/// A mutable String that is guarenteed to always end with a null byte
 pub struct PushString {
     inner: String,
 }
@@ -23,11 +24,16 @@ impl PushString {
         }
     }
 
-    pub fn push(&mut self, c: char) {
-        self.inner.pop();
-        self.inner.push(c);
+    pub fn clear(&mut self) {
+        self.inner.clear();
         self.inner.push('\0');
     }
+
+    // pub fn push(&mut self, c: char) {
+    //     self.inner.pop();
+    //     self.inner.push(c);
+    //     self.inner.push('\0');
+    // }
 
     pub fn push_str(&mut self, s: &str) {
         self.inner.pop();
