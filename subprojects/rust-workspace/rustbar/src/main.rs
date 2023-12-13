@@ -2375,26 +2375,31 @@ impl SeatHandler for SimpleLayer {
 impl SimpleLayer {
     fn init_repeat(&mut self, qh: &QueueHandle<SimpleLayer>, serial: u32, event: KeyEvent) {
         self.loop_handle.remove(self.repeat_handle);
-        let loop_qh = qh.clone();
-        match self.repeat_info {
-            RepeatInfo::Repeat { delay, .. } => {
-                self.repeat_handle = self
-                    .loop_handle
-                    .insert_source(
-                        Timer::from_duration(Duration::from_millis(delay as _)),
-                        move |_, _, state| match state.repeat_info {
-                            RepeatInfo::Repeat { rate, .. } => {
-                                state.handle_kb_event(&loop_qh, serial, &event);
-                                TimeoutAction::ToDuration(Duration::from_secs_f64(
-                                    1.0 / rate.get() as f64,
-                                ))
-                            }
-                            RepeatInfo::Disable => TimeoutAction::Drop,
-                        },
-                    )
-                    .unwrap();
+        if !matches!(event.keysym, Keysym::Escape) {
+            let loop_qh = qh.clone();
+            match self.repeat_info {
+                RepeatInfo::Repeat { delay, .. } => {
+                    self.repeat_handle = self
+                        .loop_handle
+                        .insert_source(
+                            Timer::from_duration(Duration::from_millis(delay as _)),
+                            move |_, _, state| match state.repeat_info {
+                                RepeatInfo::Repeat { rate, .. } => {
+                                    if state.handle_kb_event(&loop_qh, serial, &event) {
+                                        TimeoutAction::ToDuration(Duration::from_secs_f64(
+                                            1.0 / rate.get() as f64,
+                                        ))
+                                    } else {
+                                        TimeoutAction::Drop
+                                    }
+                                }
+                                RepeatInfo::Disable => TimeoutAction::Drop,
+                            },
+                        )
+                        .unwrap();
+                }
+                RepeatInfo::Disable => {}
             }
-            RepeatInfo::Disable => {}
         }
     }
 
@@ -2439,7 +2444,7 @@ impl SimpleLayer {
                     monitor.output.frame(qh);
                     self.layout_applauncher();
                 }
-                _ => {}
+                _ => return false,
             },
             Keysym::Down | Keysym::Right => match &mut monitor.bar_state {
                 BarState::AppLauncher { selected, .. } => {
@@ -2447,7 +2452,7 @@ impl SimpleLayer {
                     monitor.output.frame(qh);
                     self.layout_applauncher();
                 }
-                _ => {}
+                _ => return false,
             },
             Keysym::Up | Keysym::Left => match &mut monitor.bar_state {
                 BarState::AppLauncher { selected, .. } => {
@@ -2455,7 +2460,7 @@ impl SimpleLayer {
                     monitor.output.frame(qh);
                     self.layout_applauncher();
                 }
-                _ => {}
+                _ => return false,
             },
             Keysym::v => {
                 if let BarState::AppLauncher { current_input, .. } = &mut monitor.bar_state {
@@ -2468,6 +2473,8 @@ impl SimpleLayer {
                         monitor.output.frame(qh);
                         self.layout_applauncher();
                     }
+                } else {
+                    return false;
                 }
             }
             Keysym::Return => match &mut monitor.bar_state {
@@ -2518,7 +2525,7 @@ impl SimpleLayer {
                     }
                     monitor.output.layer_surface.commit();
                 }
-                _ => {}
+                _ => return false,
             },
             _ => match &mut monitor.bar_state {
                 BarState::AppLauncher { current_input, .. } => {
@@ -2528,7 +2535,7 @@ impl SimpleLayer {
                         self.layout_applauncher();
                     }
                 }
-                _ => {}
+                _ => return false,
             },
         }
         true
