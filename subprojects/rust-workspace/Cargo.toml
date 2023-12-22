@@ -10,6 +10,7 @@ members = [
   "chromiumpsd",
   "color",
   "s6-manager",
+  "tree-sitter-dconfsomebar",
 ]
 
 [profile.release]

@@ -12,6 +12,7 @@ use libmpv::{
     Mpv, MpvStr,
 };
 use libmpv_sys::mpv_handle;
+use regex::Regex;
 use serde::Serialize;
 
 #[derive(Debug)]
@@ -211,6 +212,8 @@ macro_rules! scrobble_duration {
 
 #[no_mangle]
 pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
+    let uuid_regex =
+        Regex::new("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").unwrap();
     let mut mpv = ManuallyDrop::new(Mpv::new_with_context(ctx).unwrap());
     mpv.event_context()
         .observe_property("pause", libmpv::Format::Flag, 0)
@@ -387,20 +390,15 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
                                         #[cfg(debug_assertions)]
                                         dbg!(artists);
 
-                                        data.payload.track_metadata.additional_info.artist_mbids =
-                                            if memchr::memchr(b';', artists.as_bytes()).is_some() {
-                                                i.1.to_str()
-                                                    .unwrap()
-                                                    .split(";")
-                                                    .map(|f| f.trim().to_string())
-                                                    .collect()
-                                            } else {
-                                                i.1.to_str()
-                                                    .unwrap()
-                                                    .split("/")
-                                                    .map(|f| f.trim().to_string())
-                                                    .collect()
-                                            };
+                                        data.payload
+                                            .track_metadata
+                                            .additional_info
+                                            .artist_mbids
+                                            .extend(
+                                                uuid_regex
+                                                    .find_iter(artists)
+                                                    .map(|m| m.as_str().to_owned()),
+                                            );
                                     }
                                     "MUSICBRAINZ_TRACKID" | "http://musicbrainz.org" => {
                                         data.payload
