@@ -16,6 +16,7 @@ use libmpv::{
 use libmpv_sys::mpv_handle;
 use regex::Regex;
 use serde::{Serialize, Serializer};
+use smart_default::SmartDefault;
 use yoke::{Yoke, Yokeable};
 
 #[derive(Debug)]
@@ -161,10 +162,13 @@ impl Serialize for MpvOrRustStr<'_> {
     }
 }
 
-#[derive(Serialize, Debug, Default)]
+#[derive(Serialize, Debug, SmartDefault)]
 struct AdditionalInfo<'a> {
+    #[default = "mpv"]
     media_player: &'static str,
+    #[default = "mpv ListenBrainz Rust"]
     submission_client: &'static str,
+    #[default(env!("CARGO_PKG_VERSION"))]
     submission_client_version: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     release_mbid: Option<MpvNodeString<'a>>,

@@ -1800,6 +1800,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "smart-default",
  "ureq",
  "yoke",
 ]
