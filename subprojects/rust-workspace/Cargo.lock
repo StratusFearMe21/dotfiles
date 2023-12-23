@@ -1523,8 +1523,7 @@ dependencies = [
 [[package]]
 name = "id3"
 version = "1.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf8550abe8a02c044e8f4162c8ddb4020fc65b5e7771ad9b80c25e13ed4536b6"
+source = "git+https://github.com/StratusFearMe21/rust-id3?branch=patch-1#fa3779f2ea84fb73f099bd6eb16f15fdf60c55ba"
 dependencies = [
  "bitflags 2.4.1",
  "byteorder",
@@ -1737,15 +1736,17 @@ checksum = "4ec2a862134d2a7d32d7983ddcdd1c4923530833c9f2ea1a44fc5fa473989058"
 [[package]]
 name = "libmpv"
 version = "2.0.1"
-source = "git+https://github.com/StratusFearMe21/libmpv-rs#1919269e43878c60cff71a7a841f33436bc49175"
+source = "git+https://github.com/StratusFearMe21/libmpv-rs#99e826721d17e2c27ec98b06f09b1f9df359b702"
 dependencies = [
  "libmpv-sys",
+ "serde",
+ "stable_deref_trait",
 ]
 
 [[package]]
 name = "libmpv-sys"
 version = "3.1.0"
-source = "git+https://github.com/StratusFearMe21/libmpv-rs#1919269e43878c60cff71a7a841f33436bc49175"
+source = "git+https://github.com/StratusFearMe21/libmpv-rs#99e826721d17e2c27ec98b06f09b1f9df359b702"
 dependencies = [
  "bindgen 0.68.1",
 ]
@@ -1800,6 +1801,7 @@ dependencies = [
  "serde",
  "serde_json",
  "ureq",
+ "yoke",
 ]
 
 [[package]]

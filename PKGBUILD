@@ -1,6 +1,6 @@
 pkgname=dotfiles
 pkgver=1.20.1
-pkgrel=2
+pkgrel=8
 pkgdesc='All my dotfiles as one package'
 arch=('any')
 install=dotfiles.install

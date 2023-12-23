@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 flume = { version = "0.11.0", default-features = false }
-id3 = "1.6.0"
+id3 = { git = "https://github.com/StratusFearMe21/rust-id3", branch = "patch-1" }
 libmpv = { git = "https://github.com/StratusFearMe21/libmpv-rs", version = "2.0.1", default-features = false }
 libmpv-sys = { git = "https://github.com/StratusFearMe21/libmpv-rs", version = "3.1.0", default-features = false }
 memchr = "2.5.0"
@@ -18,6 +18,7 @@ regex = "1.10.2"
 serde = { version = "1.0.159", features = ["derive"] }
 serde_json = "1.0.105"
 ureq = { version = "2.6.2", features = ["json", "tls"], default-features = false }
+yoke = { version = "0.7.3", features = ["derive"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 dirs = "5.0.0"
