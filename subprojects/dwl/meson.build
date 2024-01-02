@@ -51,6 +51,7 @@ executable('dwl',
     tree_sitter_dep,
   ],
   install : true,
+  install_tag : 'dotfiles',
   c_args : c_args
 )
 

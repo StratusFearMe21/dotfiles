@@ -1,6 +1,6 @@
 pkgname=dotfiles
 pkgver=1.20.1
-pkgrel=10
+pkgrel=21
 pkgdesc='All my dotfiles as one package'
 arch=('any')
 install=dotfiles.install
@@ -112,8 +112,8 @@ makedepends=(
   rust
   meson
 )
-provides=('wlroots' 'default-cursors')
-conflicts=('wlroots' 'default-cursors')
+provides=('default-cursors')
+conflicts=('default-cursors')
 recursion=0
 
 build() {
@@ -137,8 +137,11 @@ build() {
 package() {
   rm -rf "$srcdir/rust-build"
   echo '*' > "$pkgdir/../.gitignore"
+  set -x
+  cp -r "$srcdir/build/subprojects/rust-workspace/dist/usr" "$pkgdir"
+  set +x
   cd "$srcdir"
-  meson install -C build --no-rebuild --destdir="$pkgdir"
+  meson install -C build --no-rebuild --destdir="$pkgdir" --tags=dotfiles
   rm -rf "$pkgdir/usr/lib/librustbar.a"
   rm -rf "$pkgdir/usr/lib/libdbus_dwl.a"
   mkdir -p "$pkgdir/etc/mpv/scripts"

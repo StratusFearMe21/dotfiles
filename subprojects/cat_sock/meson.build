@@ -8,5 +8,6 @@ cat_sock = executable(
     '-C', 'codegen-units=1',
     '-C', 'strip=symbols'
   ],
-  install : true
+  install : true,
+  install_tag : 'dotfiles'
 )
