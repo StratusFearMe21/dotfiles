@@ -1,0 +1,9 @@
+<node>
+  <interface name="org.wireplumber.DefaultNode">
+    <property name="Volume" type="a{sv}" access="read" />
+    <method name="SetVolume">
+      <arg name="volume" direction="in" type="d" />
+      <arg name="result" direction="out" type="b" />
+    </method>
+  </interface>
+</node>

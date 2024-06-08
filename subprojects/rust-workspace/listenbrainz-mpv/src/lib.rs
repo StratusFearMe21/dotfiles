@@ -543,7 +543,8 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> i8 {
                                             .unwrap_or(""))
                                         && track_metadata.artist_name.is_some()
                                         && track_metadata.track_name.is_some()
-                                        && track_metadata.release_name.is_some();
+                                        && track_metadata.release_name.is_some()
+                                        && track_metadata.additional_info.release_mbid.is_some();
 
                                 #[cfg(feature = "only-scrobble-if-mbid")]
                                 {

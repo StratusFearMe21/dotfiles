@@ -2,3 +2,6 @@
 url = https://gitlab.freedesktop.org/wlroots/wlroots
 revision = HEAD
 depth = 1
+
+[provide]
+wlroots = wlroots

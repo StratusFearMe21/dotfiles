@@ -86,6 +86,14 @@
         {
           "type": "update_time_ntp",
           "named": true
+        },
+        {
+          "type": "wireplumber_block",
+          "named": true
+        },
+        {
+          "type": "wireplumber_max_volume",
+          "named": true
         }
       ]
     }
@@ -168,6 +176,14 @@
   },
   {
     "type": "update_time_ntp",
+    "named": true
+  },
+  {
+    "type": "wireplumber_block",
+    "named": true
+  },
+  {
+    "type": "wireplumber_max_volume",
     "named": true
   }
 ]

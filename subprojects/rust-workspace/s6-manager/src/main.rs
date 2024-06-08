@@ -1,9 +1,6 @@
-use std::{
-    ffi::CString,
-    os::fd::{AsRawFd, FromRawFd, OwnedFd},
-    time::Duration,
-};
+use std::{ffi::CString, os::fd::AsRawFd, time::Duration};
 
+use clap::Parser;
 use dbus::{blocking::SyncConnection, channel::Channel, message::MatchRule};
 use logind::{OrgFreedesktopLogin1Manager, OrgFreedesktopLogin1ManagerPrepareForShutdown};
 use nix::{
@@ -19,7 +16,16 @@ use polling::{Event, Events, Poller};
 
 mod logind;
 
+#[derive(Parser)]
+struct Command {
+    starting_service: String,
+    service_dir: String,
+    #[clap(short, long)]
+    wayland_session: bool,
+}
+
 fn main() {
+    let mut args = Command::parse();
     let mut dbus_system = Channel::get_private(dbus::channel::BusType::System).unwrap();
     dbus_system.set_watch_enabled(true);
     let watch_fd_system = dbus_system.watch();
@@ -49,20 +55,23 @@ fn main() {
 
     let fds = pipe().unwrap();
 
-    let mut args = std::env::args().skip(1);
-    let service_start = args.next().unwrap();
     std::env::set_var("!", std::process::id().to_string());
-    let program = {
-        let args: Vec<CString> = [
+    if args.wayland_session {
+        std::env::set_var("WAYLAND_DISPLAY", "wayland-0");
+        std::env::set_var("DISPLAY", ":0");
+        std::env::set_var("XDG_SESSION_TYPE", "wayland");
+        std::env::set_var("XDG_CURRENT_DESKTOP", "dwl");
+    }
+    let program = unsafe {
+        args.service_dir.as_mut_vec().push(0);
+        let args: Vec<CString> = vec![
             CString::new("s6-svscan").unwrap(),
             CString::new("-d").unwrap(),
-            CString::new(fds.1.to_string()).unwrap(),
-        ]
-        .into_iter()
-        .chain(args.map(|s| CString::new(s).unwrap()))
-        .collect();
+            CString::new(fds.1.as_raw_fd().to_string()).unwrap(),
+            CString::from_vec_with_nul_unchecked(args.service_dir.into_bytes()),
+        ];
         let filename = CString::new("s6-svscan").unwrap();
-        match unsafe { fork().unwrap() } {
+        match fork().unwrap() {
             nix::unistd::ForkResult::Child => {
                 execvp(filename.as_c_str(), &args).unwrap();
                 return;
@@ -99,11 +108,11 @@ fn main() {
             )
             .unwrap();
         poller
-            .add_with_mode(fds.0, Event::readable(4), polling::PollMode::Level)
+            .add_with_mode(&fds.0, Event::readable(4), polling::PollMode::Level)
             .unwrap();
     }
 
-    let mut pipe = Some(unsafe { OwnedFd::from_raw_fd(fds.0) });
+    let mut pipe = Some(fds.0);
 
     let mut events = Events::new();
     'mainloop: loop {
@@ -161,7 +170,9 @@ fn main() {
                         let mut buf = [0; 512];
                         read(p.as_raw_fd(), &mut buf).unwrap();
                         if buf.contains(&b'\n') {
-                            std::process::Command::new(&service_start).spawn().unwrap();
+                            std::process::Command::new(&args.starting_service)
+                                .spawn()
+                                .unwrap();
                         }
                     }
                 }

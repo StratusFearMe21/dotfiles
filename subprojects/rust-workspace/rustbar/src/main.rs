@@ -5,8 +5,6 @@ use std::io::BufWriter;
 use std::io::Write;
 use std::ops::AddAssign;
 use std::ops::SubAssign;
-use std::os::fd::AsRawFd;
-use std::os::fd::BorrowedFd;
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
 use std::ptr::NonNull;
@@ -16,6 +14,7 @@ use std::time::Duration;
 
 use clipboard::state::SelectionTarget;
 use color::DefaultColorParser;
+use components::wireplumber::WirePlumberBlock;
 use components::{
     battery::BatteryBlock,
     brightness::BrightnessBlock,
@@ -42,7 +41,7 @@ use dconf_sys::dconf_client_read;
 use dconf_sys::DConfClient;
 use freedesktop_desktop_entry::default_paths;
 use freedesktop_desktop_entry::DesktopEntry;
-use glib::FromVariant;
+use glib::variant::FromVariant;
 use iced_tiny_skia::core::font::Family;
 use iced_tiny_skia::core::Background;
 use iced_tiny_skia::{
@@ -65,8 +64,8 @@ use smithay_client_toolkit::delegate_primary_selection;
 use smithay_client_toolkit::globals::GlobalData;
 use smithay_client_toolkit::reexports::calloop::timer::TimeoutAction;
 use smithay_client_toolkit::reexports::calloop::timer::Timer;
-use smithay_client_toolkit::reexports::calloop::Mode;
 use smithay_client_toolkit::reexports::calloop::RegistrationToken;
+use smithay_client_toolkit::reexports::calloop_wayland_source::WaylandSource;
 use smithay_client_toolkit::reexports::client::backend::ObjectId;
 use smithay_client_toolkit::reexports::client::protocol::wl_keyboard;
 use smithay_client_toolkit::reexports::protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1;
@@ -119,6 +118,7 @@ mod dconf;
 mod logind;
 mod mpris;
 mod upower;
+mod wireplumber;
 
 mod clipboard;
 mod components;
@@ -239,6 +239,7 @@ pub enum SelectedBlock {
     Brightness,
     Battery(usize),
     Connman,
+    WirePlumber,
     Playback,
     None,
 }
@@ -249,6 +250,7 @@ pub struct SharedData {
     bat_block: Option<BatteryBlock>,
     connman: Option<ConnmanBlock>,
     playback: Option<PlaybackBlock>,
+    wireplumber: Option<WirePlumberBlock>,
     time_handle: RegistrationToken,
     pub selected: SelectedBlock,
 }
@@ -315,6 +317,16 @@ impl SharedData {
                 connman = Some(ConnmanBlock::new(system_connection, time.as_mut()))
             }
 
+            let mut wireplumber = None;
+            if dconf_read_variant(dconf, "/dotfiles/somebar/wireplumber-block").unwrap_or(true) {
+                wireplumber = Some(WirePlumberBlock::new(
+                    user_connection_ptr,
+                    dconf_read_variant(dconf, "/dotfiles/somebar/wireplumber-max-volume")
+                        .unwrap_or(100.0)
+                        / 100.0,
+                ));
+            }
+
             let sys_qh = Rc::clone(&qh);
 
             system_connection
@@ -331,9 +343,49 @@ impl SharedData {
                         return None;
                     };
                     if &*member == "PropertiesChanged" {
-                        if let Some(ref mut media) = shared_data.shared_data.playback {
-                            if media.query_media(event) {
-                                shared_data.write_bar(&qh);
+                        let properties_changed: mpris::OrgFreedesktopDBusPropertiesPropertiesChanged = event.read_all().unwrap();
+                        if properties_changed.interface_name == "org.wireplumber.DefaultNode"
+                        {
+                            if let Some(ref mut wireplumber) = shared_data.shared_data.wireplumber {
+                                wireplumber.query_default_node(properties_changed);
+                                let monitor = shared_data.monitors.values_mut().find(|o| o.selected).unwrap();
+                                if !monitor.is_in_overlay {
+                                    monitor.output.layer_surface.set_layer(Layer::Overlay);
+                                }
+                                shared_data.loop_handle.remove(shared_data.shared_data.time_handle);
+                                monitor.is_in_overlay = true;
+                                monitor.bar_state = BarState::ProgressBar {
+                                    percentage: wireplumber.volume as f32,
+                                    icon: wireplumber.volume_level().chars().next().unwrap(),
+                                };
+                                monitor.output.frame(&qh);
+                                let time_qh = Rc::clone(&qh);
+                                shared_data.shared_data.time_handle = shared_data
+                                    .loop_handle
+                                    .insert_source(
+                                        Timer::from_duration(Duration::from_millis(
+                                            shared_data.bar_settings.bar_show_time,
+                                        )),
+                                        move |_, _, data| {
+                                            let monitor =
+                                                data.monitors.values_mut().find(|o| o.selected).unwrap();
+                                            monitor.bar_state = BarState::Normal;
+                                            if monitor.is_in_overlay {
+                                                monitor.output.layer_surface.set_layer(Layer::Bottom);
+                                                monitor.is_in_overlay = false;
+                                            }
+                                            monitor.output.frame(&time_qh);
+                                            TimeoutAction::Drop
+                                        },
+                                    )
+                                    .unwrap();
+                            }
+                            shared_data.write_bar(&qh);
+                        } else {
+                            if let Some(ref mut media) = shared_data.shared_data.playback {
+                                if media.query_media(properties_changed) {
+                                    shared_data.write_bar(&qh);
+                                }
                             }
                         }
                     } else if &*member == "Notify" {
@@ -359,26 +411,24 @@ impl SharedData {
                                     let split = new_font.rsplit_once(' ').unwrap();
 
                                     let font = split.0;
-                                    let font_size: f32 = split.1.parse().unwrap();
+                                    let font_size = split.1.parse().unwrap();
 
                                     shared_data.iced =
                                         iced_tiny_skia::Backend::new(iced_tiny_skia::Settings {
-                                            default_text_size: font_size,
                                             default_font: shared_data.iced.default_font(),
+                                            default_text_size: font_size,
                                         });
                                     shared_data.monitors.iter_mut().for_each(|(_, m)| {
-                                        m.info_iced = iced_tiny_skia::Backend::new(
-                                            iced_tiny_skia::Settings {
-                                                default_text_size: font_size,
+                                        m.info_iced = 
+                                            iced_tiny_skia::Backend::new(iced_tiny_skia::Settings {
                                                 default_font: shared_data.iced.default_font(),
-                                            },
-                                        );
+                                                default_text_size: font_size,
+                                            });
                                         if let Some(ref mut i) = m.info_output {
                                             i.frame(qh.as_ref());
                                         }
                                     });
                                     shared_data.bar_settings.default_font = Font {
-                                        monospaced: true,
                                         family: Family::Name(std::mem::transmute(font)),
                                         ..Default::default()
                                     };
@@ -410,29 +460,26 @@ impl SharedData {
                                     .unwrap_or(String::from("Noto Sans"));
 
                                     shared_data.iced =
-                                        iced_tiny_skia::Backend::new(iced_tiny_skia::Settings {
-                                            default_text_size: shared_data.iced.default_size(),
-                                            default_font: Font {
-                                                monospaced: true,
-                                                family: Family::Name(std::mem::transmute(
-                                                    new_font.as_str(),
-                                                )),
-                                                ..Default::default()
-                                            },
-                                        });
-                                    shared_data.monitors.iter_mut().for_each(|(_, m)| {
-                                        m.info_iced = iced_tiny_skia::Backend::new(
-                                            iced_tiny_skia::Settings {
-                                                default_text_size: shared_data.iced.default_size(),
+                                            iced_tiny_skia::Backend::new(iced_tiny_skia::Settings {
                                                 default_font: Font {
-                                                    monospaced: true,
                                                     family: Family::Name(std::mem::transmute(
                                                         new_font.as_str(),
                                                     )),
                                                     ..Default::default()
                                                 },
-                                            },
-                                        );
+                                                default_text_size: shared_data.iced.default_size()
+                                            });
+                                    shared_data.monitors.iter_mut().for_each(|(_, m)| {
+                                        m.info_iced = 
+                                            iced_tiny_skia::Backend::new(iced_tiny_skia::Settings {
+                                                default_font: Font {
+                                                    family: Family::Name(std::mem::transmute(
+                                                        new_font.as_str(),
+                                                    )),
+                                                    ..Default::default()
+                                                },
+                                                default_text_size: shared_data.iced.default_size()
+                                            });
                                         if let Some(ref mut i) = m.info_output {
                                             i.frame(qh.as_ref());
                                         }
@@ -607,6 +654,40 @@ impl SharedData {
                                         }
                                     }
                                     shared_data.write_bar(&qh);
+                                }
+                                Some(NodeKind::WireplumberBlock) => {
+                                    if dconf_read_variant(
+                                        shared_data.dconf,
+                                        "/dotfiles/somebar/wireplumber-block",
+                                    )
+                                    .unwrap_or(true)
+                                    {
+                                        shared_data.shared_data.wireplumber =
+                                            Some(WirePlumberBlock::new(user_connection_ptr,
+                                            dconf_read_variant(
+                                            shared_data.dconf,
+                                            "/dotfiles/somebar/wireplumber-max-volume",
+                                        )
+                                        .unwrap_or(100.0) / 100.0));
+                                    } else {
+                                        if let Some(wireplumber) =
+                                            shared_data.shared_data.wireplumber.take()
+                                        {
+                                            wireplumber.unregister(user_con);
+                                        }
+                                    }
+                                    shared_data.write_bar(&qh);
+                                }
+                                Some(NodeKind::WireplumberMaxVolume) => {
+                                    if let Some(ref mut wireplumber) =
+                                        shared_data.shared_data.wireplumber
+                                    {
+                                        wireplumber.max_volume = dconf_read_variant(
+                                            shared_data.dconf,
+                                            "/dotfiles/somebar/wireplumber-max-volume",
+                                        )
+                                        .unwrap_or(100.0) / 100.0;
+                                    }
                                 }
                                 Some(NodeKind::ColorActive) => {
                                     shared_data
@@ -804,6 +885,7 @@ impl SharedData {
                 brightness,
                 bat_block: battery,
                 playback,
+                wireplumber,
                 connman,
                 selected: SelectedBlock::None,
             }
@@ -848,7 +930,7 @@ impl SharedData {
                     background: Background::Color(colors.0),
                     border_radius: [0.0, 0.0, 0.0, 0.0],
                     border_width: 0.0,
-                    border_color: Color::TRANSPARENT,
+                    border_color: Color::TRANSPARENT
                 }
             };
         }
@@ -923,14 +1005,15 @@ impl SharedData {
                 )
                 .width;
             x -= measurement;
+            let bounds = Rectangle {
+                x,
+                y: logical_size.height / 2.0,
+                width: logical_size.width,
+                height: logical_size.height / 2.0,
+            };
             primitives.push(Primitive::Text {
                 content,
-                bounds: Rectangle {
-                    x,
-                    y: logical_size.height / 2.0,
-                    width: logical_size.width,
-                    height: logical_size.height / 2.0,
-                },
+                bounds,
                 color: select_color!(selected),
                 size: backend.default_size(),
                 line_height: LineHeight::Relative(1.0),
@@ -940,14 +1023,15 @@ impl SharedData {
                 shaping: Shaping::Advanced,
             });
             x -= divider_measurement.width;
+            let bounds = Rectangle {
+                x,
+                y: logical_size.height / 2.0,
+                width: logical_size.width,
+                height: logical_size.height,
+            };
             primitives.push(Primitive::Text {
                 content: select_divider!(selected),
-                bounds: Rectangle {
-                    x,
-                    y: logical_size.height / 2.0,
-                    width: logical_size.width,
-                    height: logical_size.height,
-                },
+                bounds,
                 color: select_divider_color!(selected),
                 size: backend.default_size() + padding_y * 2.0,
                 line_height: LineHeight::Relative(1.0),
@@ -960,6 +1044,70 @@ impl SharedData {
             media.width = measurement + divider_measurement.width + padding_x;
             if selected {
                 primitives[l] = status_bar_bg!(media.x_at, media.width, logical_size.height);
+            }
+        }
+
+        if let Some(ref mut wireplumber) = self.wireplumber {
+            let selected = selected_block_selected!(self, SelectedBlock::WirePlumber);
+            set_full_divider_if_selected!(selected, primitives);
+            let l = primitives.len();
+            primitives.push(Primitive::Group {
+                primitives: Vec::new(),
+            });
+            let mut content = String::new();
+            wireplumber.fmt(&mut content);
+            let measurement = backend
+                .measure(
+                    &content,
+                    backend.default_size(),
+                    LineHeight::Relative(1.0),
+                    font,
+                    Size::INFINITY,
+                    Shaping::Basic,
+                )
+                .width;
+            x -= measurement;
+            let bounds = Rectangle {
+                x,
+                y: logical_size.height / 2.0,
+                width: logical_size.width,
+                height: logical_size.height / 2.0,
+            };
+            primitives.push(Primitive::Text {
+                content,
+                bounds,
+                color: select_color!(selected),
+                size: backend.default_size(),
+                line_height: LineHeight::Relative(1.0),
+                font,
+                horizontal_alignment: Horizontal::Left,
+                vertical_alignment: Vertical::Center,
+                shaping: Shaping::Basic,
+            });
+            x -= divider_measurement.width;
+            let bounds = Rectangle {
+                x,
+                y: logical_size.height / 2.0,
+                width: logical_size.width,
+                height: logical_size.height,
+            };
+            primitives.push(Primitive::Text {
+                content: select_divider!(selected),
+                bounds,
+                color: select_divider_color!(selected),
+                size: backend.default_size() + padding_y * 2.0,
+                line_height: LineHeight::Relative(1.0),
+                font,
+                horizontal_alignment: Horizontal::Left,
+                vertical_alignment: Vertical::Center,
+                shaping: Shaping::Basic,
+            });
+
+            wireplumber.x_at = x;
+            wireplumber.width = measurement + divider_measurement.width;
+            if selected {
+                primitives[l] =
+                    status_bar_bg!(wireplumber.x_at, wireplumber.width, logical_size.height);
             }
         }
 
@@ -1302,6 +1450,10 @@ impl SharedData {
             connman.fmt_table(f)?;
         }
 
+        if let Some(ref wireplumber) = self.wireplumber {
+            wireplumber.fmt_table(f)?;
+        }
+
         if let Some(ref media) = self.playback {
             media.fmt_table(f)
         } else {
@@ -1424,14 +1576,6 @@ fn main() {
 
     let pool = SlotPool::new(1920 * bar_size.height as usize * 4, &shm).unwrap();
 
-    let guard = event_queue.prepare_read().unwrap();
-    let fd = Generic::new(
-        unsafe { BorrowedFd::borrow_raw(guard.connection_fd().as_raw_fd()) },
-        Interest::READ,
-        Mode::Level,
-    );
-    drop(guard);
-
     let mut event_loop = EventLoop::try_new().unwrap();
     let handle = event_loop.handle();
 
@@ -1462,31 +1606,12 @@ fn main() {
         clipboard_state,
     );
 
-    let event_queue = Rc::new(RefCell::new(event_queue));
-    let event_queue_loop = Rc::clone(&event_queue);
-    event_loop
-        .handle()
-        .insert_source(fd, move |_, _, data| {
-            event_queue_loop
-                .borrow_mut()
-                .blocking_dispatch(data)
-                .unwrap();
-            Ok(calloop::PostAction::Continue)
-        })
+    WaylandSource::new(conn, event_queue)
+        .insert(event_loop.handle())
         .unwrap();
 
-    {
-        let mut event_queue = event_queue.borrow_mut();
-        event_queue.roundtrip(&mut simple_layer).unwrap();
-        event_queue.flush().unwrap();
-    }
-
     event_loop
-        .run(None, &mut simple_layer, move |data| {
-            let mut event_queue = event_queue.borrow_mut();
-            event_queue.dispatch_pending(data).unwrap();
-            event_queue.flush().unwrap();
-        })
+        .run(None, &mut simple_layer, move |_| {})
         .unwrap();
 }
 
@@ -1859,7 +1984,7 @@ impl SimpleLayer {
             settings_parser: {
                 let mut parser = tree_sitter::Parser::new();
                 parser
-                    .set_language(tree_sitter_dconfsomebar::language())
+                    .set_language(&tree_sitter_dconfsomebar::language())
                     .unwrap();
                 parser.set_timeout_micros(500_000);
                 parser
@@ -1943,6 +2068,7 @@ impl SimpleLayer {
                 let query = Pattern::parse(
                     current_input.borrow().as_ref(),
                     nucleo_matcher::pattern::CaseMatching::Ignore,
+                    nucleo_matcher::pattern::Normalization::Smart,
                 );
 
                 #[inline(always)]
@@ -2723,6 +2849,16 @@ impl PointerHandler for SimpleLayer {
                             }
                         }
 
+                        if let Some(ref wireplumber) = self.shared_data.wireplumber {
+                            if event.position.0 >= wireplumber.x_at as f64 {
+                                if self.shared_data.selected != SelectedBlock::WirePlumber {
+                                    self.shared_data.selected = SelectedBlock::WirePlumber;
+                                    self.write_bar(qh);
+                                }
+                                return;
+                            }
+                        }
+
                         if let Some(ref connman) = self.shared_data.connman {
                             if event.position.0 >= connman.x_at as f64 {
                                 if self.shared_data.selected != SelectedBlock::Connman {
@@ -3373,19 +3509,16 @@ impl
                     }
                     state.loop_handle.remove(state.shared_data.time_handle);
                     let number = String::from_utf8(match command {
-                        WobCommand::VolumeUp => {
-                            std::process::Command::new("pamixer")
-                                .args(&["-i", "5", "--get-volume"])
-                                .output()
-                                .unwrap()
-                                .stdout
-                        }
-                        WobCommand::VolumeDown => {
-                            std::process::Command::new("pamixer")
-                                .args(&["-d", "5", "--get-volume"])
-                                .output()
-                                .unwrap()
-                                .stdout
+                        WobCommand::VolumeUp | WobCommand::VolumeDown => {
+                            if let Some(ref wireplumber) = state.shared_data.wireplumber {
+                                let change = match command {
+                                    WobCommand::VolumeUp => 0.05,
+                                    WobCommand::VolumeDown => -0.05,
+                                    _ => unreachable!()
+                                };
+                                wireplumber.adjust_volume(change);
+                            }
+                            return;
                         }
                         WobCommand::LightUp => {
                             std::process::Command::new("light")

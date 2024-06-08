@@ -1,4 +1,6 @@
 export NO_AT_BRIDGE=1
+export HELIX_DISABLE_AUTO_GRAMMAR_BUILD=1
+export PARU_CONF=/usr/share/dotfiles/paru.conf
 export DOTFILES_USER=$USER
 export SDL_VIDEODRIVER=wayland
 export SDL_AUDIODRIVER=pipewire
@@ -12,8 +14,5 @@ export CC_LD=mold
 export CXX_LD=mold
 export RANLIB=llvm-ranlib
 export AR=llvm-ar
-export WAYLAND_DISPLAY=wayland-0
-export DISPLAY=:0
-export XDG_CURRENT_DESKTOP=dwl
 export QT_QPA_PLATFORMTHEME=qt5ct
 [ -f $HOME/.config/user-dirs.dirs ] && . $HOME/.config/user-dirs.dirs

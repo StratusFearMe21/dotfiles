@@ -1,4 +1,5 @@
 project('dotfiles')
+subproject('wpmonitor')
 subproject('dwl')
 subproject('cat_sock')
 subproject('isdirempty')

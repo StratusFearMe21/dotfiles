@@ -1,10 +1,14 @@
 [language-server]
 ccls = { command = "ccls" }
-grezi = { command = "grezi", args = ["--lsp", "-d"] }
+
+[language-server.grezi]
+command = "grezi"
+args = ["--lsp"]
 
 [[language]]
 name = "c"
 auto-format = true
+roots = ["compile_commands.json"]
 language-servers = ["ccls"]
 
 [[language]]
@@ -37,3 +41,15 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammer]]
 name = "groff"
+
+[[language]]
+name = "djot"
+scope = "scope.djot"
+injection-regex = "dj|djot"
+file-types = ["dj"]
+roots = []
+comment-token = "{%"
+indent = { tab-width = 4, unit = "    " }
+
+[[grammar]]
+name = "djot"

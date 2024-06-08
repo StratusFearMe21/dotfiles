@@ -54,6 +54,14 @@
         },
         {
           "type": "SYMBOL",
+          "name": "wireplumber_block"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "wireplumber_max_volume"
+        },
+        {
+          "type": "SYMBOL",
           "name": "color_active"
         },
         {
@@ -134,6 +142,14 @@
       "type": "STRING",
       "value": "/dotfiles/somebar/media-block"
     },
+    "wireplumber_block": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/wireplumber-block"
+    },
+    "wireplumber_max_volume": {
+      "type": "STRING",
+      "value": "/dotfiles/somebar/wireplumber-max-volume"
+    },
     "color_active": {
       "type": "STRING",
       "value": "/dotfiles/somebar/color-active"
@@ -174,4 +190,3 @@
   "inline": [],
   "supertypes": []
 }
-

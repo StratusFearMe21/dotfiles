@@ -13,12 +13,12 @@ futures = "0.3"
 getopts = "^0.2"
 greetd_ipc = { version = "^0.9", features = ["tokio-codec"] }
 i18n-embed = { version = "^0.14", features = ["desktop-requester", "fluent-system"] }
-i18n-embed-fl = "^0.7"
+i18n-embed-fl = "^0.8"
 lazy_static = "^1.4"
-nix = { version = "^0.27", features = ["feature"] }
-ratatui = "^0.24"
+nix = { version = "^0.28", features = ["feature"] }
+ratatui = "^0.26"
 rust-embed = "^8.0"
-rust-ini = "^0.20"
+rust-ini = "^0.21"
 smart-default = "^0.7"
 textwrap = "^0.16"
 tokio = { version = "^1.2", default-features = false, features = ["macros", "rt", "net", "sync", "time"] }

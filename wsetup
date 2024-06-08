@@ -1,4 +1,4 @@
-#!/bin/execlineb -S1
+#!/bin/execlineb -S2
 importas -i USER USER
 foreground { rm -rf /tmp/${USER} }
 foreground { mkdir -p /tmp/${USER}/service/.s6-svscan }

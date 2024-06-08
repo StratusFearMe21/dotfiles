@@ -77,6 +77,14 @@
           no be updated or appear in the status bar if set to false
         </description>
       </key>
+      <key name="wireplumber-block" type="b">
+        <default>true</default>
+        <summary>Show the current volume of the default device in the status bar</summary>
+      </key>
+      <key name="wireplumber-max-volume" type="d">
+        <default>100.0</default>
+        <summary>The maximum volume that the status bar will set for the default node</summary>
+      </key>
       <key name="color-inactive" type="(ss)">
         <default>("#b3b1ad","#0a0e14")</default>
         <summary>Status bar color when monitor is not active</summary>

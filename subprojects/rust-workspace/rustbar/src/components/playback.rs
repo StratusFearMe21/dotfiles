@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use base64::Engine;
 use dbus::arg::RefArg;
 use iced_tiny_skia::core::image::Handle;
 use pct_str::PctStr;
@@ -34,6 +35,14 @@ pub fn url_to_handle(art_url: Url) -> Option<Handle> {
     match art_url.scheme() {
         "file" => Some(Handle::from_path(
             PctStr::new(art_url.path()).unwrap().decode(),
+        )),
+        "data" => Some(Handle::from_memory(
+            base64::engine::GeneralPurpose::new(
+                &base64::alphabet::STANDARD,
+                base64::engine::GeneralPurposeConfig::new(),
+            )
+            .decode(art_url.path().split_once(',').unwrap().1)
+            .unwrap(),
         )),
         _ => None,
     }
@@ -124,12 +133,13 @@ impl PlaybackBlock {
             // f.write_all(b" - ")?;
             // f.write_all(self.song_metadata.1.as_bytes())
         }
-        Ok(())
+        f.write(b"\n").map(|_| ())
     }
 
-    pub fn query_media(&mut self, event: dbus::Message) -> bool {
-        let property: mpris::OrgFreedesktopDBusPropertiesPropertiesChanged =
-            event.read_all().unwrap();
+    pub fn query_media(
+        &mut self,
+        property: mpris::OrgFreedesktopDBusPropertiesPropertiesChanged,
+    ) -> bool {
         let mut changed = false;
         if let Some(metadata) = property.changed_properties.get("Metadata") {
             changed = true;

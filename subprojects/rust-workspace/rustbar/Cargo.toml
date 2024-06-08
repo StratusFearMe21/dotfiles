@@ -11,10 +11,10 @@ tiny-skia = "0.10"
 calloop-dbus = { path = "../calloop-dbus" }
 dbus = "0.9.7"
 dirs = "5.0.1"
-nix = { version = "0.27.1", default-features = false, features = ["inotify", "fs"] }
+nix = { version = "0.28.0", default-features = false, features = ["inotify", "fs"] }
 rand = { version = "0.8.5", default-features = false, features = ["std"] }
 dconf-sys = { path = "../dconf-sys" }
-glib = "0.18.1"
+glib = "0.19.3"
 memchr = "2.5.0"
 wayland-scanner = "0.31.0"
 wayland-backend = "0.3.2"
@@ -23,20 +23,21 @@ num_enum = "0.7.1"
 keyframe = { version = "1.1.1", default-features = false }
 iced_tiny_skia = { version = "0.1.0", features = ["image"] }
 yoke = { version = "0.7.3", features = ["derive"] }
-nucleo-matcher = "0.2.0"
+nucleo-matcher = "0.3.0"
 color = { version = "0.1.0", path = "../color" }
 palette = { version = "0.7.3", default-features = false, features = ["std"] }
 cssparser = "0.33.0"
 chrono = { version = "0.4.31", default-features = false, features = ["clock"] }
-rusqlite = "0.30.0"
+rusqlite = "0.31.0"
 tree-sitter-dconfsomebar = { version = "0.0.1", path = "../tree-sitter-dconfsomebar" }
-tree-sitter = "0.20.10"
+tree-sitter = ">=0.22.2"
 url = "2.5.0"
 pct-str = "2.0.0"
 cxx = "1.0.110"
+base64 = "0.22.0"
 
 [build-dependencies]
 tree-sitter-dconfsomebar = { version = "0.0.1", path = "../tree-sitter-dconfsomebar" }
-tree-sitter = "0.20.10"
+tree-sitter = ">=0.22.2"
 case = "1.0.0"
 cxx-build = "1.0.110"

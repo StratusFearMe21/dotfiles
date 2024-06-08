@@ -7,12 +7,12 @@
 static int sloppyfocus               = 1;  /* focus follows mouse */
 static int bypass_surface_visibility = 0;  /* 1 means idle inhibitors will disable idle tracking even if it's surface isn't visible  */
 static unsigned int borderpx         = 1;  /* border pixel of windows */
-static float bordercolor[] = {0.337, 0.357, 0.078, 1.0 };
-static float focuscolor[] = {  0.918, 0.424, 0.451, 1.0 };
-static float rootcolor[] = { 0.133, 0.133, 0.133, 1.0 };
-static float urgentcolor[] = { 1.0, 0.0, 0.0, 1.0 };
-/* To conform the xdg-protocol, set the alpha to zero to restore the old behavior */
-static float fullscreen_bg[]         = {0.1, 0.1, 0.1, 1.0}; /* You can also use glsl colors */
+static float rootcolor[]             = COLOR(0x222222ff);
+static float bordercolor[]           = COLOR(0x565b14ff);
+static float focuscolor[]            = COLOR(0xea6c73ff);
+static float urgentcolor[]           = COLOR(0xd95757ff);
+/* This conforms to the xdg-protocol. Set the alpha to zero to restore the old behavior */
+static float fullscreen_bg[]         = {0.1f, 0.1f, 0.1f, 1.0f}; /* You can also use glsl colors */
 
 /* tagging - TAGCOUNT must be no greater than 31 */
 static int tagcount = 9;
@@ -21,11 +21,10 @@ static int tagcount = 9;
 static int log_level = WLR_ERROR;
 
 static const Rule rules[] = {
-	/* app_id     title       tags mask     isfloating   monitor */
-	/* examples:
-	{ "Gimp",     NULL,       0,            1,           -1 },
-	*/
-	// { "firefox",  NULL,       1 << 8,       0,           -1 },
+	/* app_id             title       tags mask     isfloating   monitor */
+	/* examples: */
+	{ "Gimp_EXAMPLE",     NULL,       0,            1,           -1 }, /* Start on currently visible tags floating, not tiled */
+	{ "firefox_EXAMPLE",  NULL,       1 << 8,       0,           -1 }, /* Start on ONLY tag "9" */
 };
 
 /* layout(s) */
@@ -37,16 +36,18 @@ static const Layout layouts[] = {
 };
 
 /* monitors */
+/* (x=-1, y=-1) is reserved as an "autoconfigure" monitor position indicator */
+/* WARNING: negative values other than (-1, -1) cause problems with xwayland clients' menus */
 /* NOTE: ALWAYS add a fallback rule, even if you are completely sure it won't be used */
 static const MonitorRule monrules[] = {
-	/* name       mfact nmaster scale layout       rotate/reflect                x    y */
+	/* name       mfact  nmaster scale layout       rotate/reflect                x    y */
 	/* example of a HiDPI laptop monitor:
-	{ "eDP-1",    0.5,  1,      2,    &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1 },
+	{ "eDP-1",    0.5f,  1,      2,    &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1 },
 	*/
 	/* defaults */
-  {"LG Electronics LG TV", 0.55, 1, 2, &layouts[0],
+  {"LG Electronics LG TV", 0.55f, 1, 2, &layouts[0],
      WL_OUTPUT_TRANSFORM_NORMAL, -1, -1},
-	{ NULL,       0.55, 1,      1,    &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1 },
+	{ NULL,       0.55f, 1,      1,    &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1 },
 };
 
 /* keyboard */
@@ -97,6 +98,7 @@ LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE
 */
 static enum libinput_config_accel_profile accel_profile = LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE;
 static double accel_speed = 0.0;
+
 /* You can choose between:
 LIBINPUT_CONFIG_TAP_MAP_LRM -- 1/2/3 finger tap maps to left/right/middle
 LIBINPUT_CONFIG_TAP_MAP_LMR -- 1/2/3 finger tap maps to left/middle/right
